@@ -76,3 +76,25 @@ def test_settings_change_is_audited(client):
     log = client.get("/api/audit-log").json()
     assert any(e["what"] == "config.set" for e in log)
     assert client.get("/api/audit-log/verify").json()["ok"]
+
+
+def test_agent_versions_and_activation(client):
+    import aios.api.app as appmod
+    from aios.agents import registry
+
+    with appmod.sm()() as s:
+        registry.propose_version(s, "cmo", system_prompt="candidate", config=None, reason="test",
+                                 expected_improvement="x", created_by="agent:coo")
+        s.commit()
+    detail = client.get("/api/agents/cmo").json()
+    assert [v["version"] for v in detail["versions"]] == [2, 1] and detail["versions"][1]["active"]
+    r = client.post("/api/agents/cmo/activate", json={"version": 2, "why": "try the candidate"})
+    assert r.json()["active_version"] == 2
+    assert client.get("/api/agents/cmo").json()["system_prompt"] == "candidate"
+    assert client.post("/api/agents/cmo/activate", json={"version": 9, "why": "nope"}).status_code == 404
+    assert client.get("/api/experiments").json() == []
+
+
+def test_test_command_needs_a_key(client):
+    r = client.post("/api/commands/test", json={"options": {"improvement_id": "x"}})
+    assert r.status_code == 400 and r.json()["code"] == "missing_credentials"

@@ -19,7 +19,7 @@ from aios.core.actor import FOUNDER
 from aios.core.errors import AIOSError
 
 LLM_COMMANDS = ["ceo", "board", "research", "market", "opportunity", "decision", "cto", "plan", "priorities",
-                "audit", "improve"]
+                "audit", "improve", "trends"]
 
 
 def _p(obj) -> None:
@@ -71,6 +71,23 @@ def render(result: dict) -> str:
         for c in (r.get("claims") or [])[:10]:
             src = c.get("source_url") or (c.get("source") or {}).get("url") or "interpretation"
             out.append(f"  - {c['text']} [{src}]")
+    if result.get("trends"):
+        tr = result["trends"]
+        out.append(f"\nTrends: {tr.get('summary', '')}")
+        for t in tr.get("trends", []):
+            flag = "  [mostly viral discussion]" if t.get("mostly_viral_discussion") else ""
+            out.append(f"  - {t['name']} ({t['category']}, {t['trajectory']}, relevance {t['relevance']}, "
+                       f"evidence {t['evidence_strength']}, confidence {t['confidence']}){flag}")
+            if t.get("business_opportunity"):
+                out.append(f"      opportunity: {t['business_opportunity']} (test cost ${t.get('cost_to_test_usd', 0):,.0f})")
+        for x in tr.get("ignore", []):
+            out.append(f"  ignore: {x}")
+        if tr.get("note"):
+            out.append(f"  note: {tr['note']}")
+    if result.get("test"):
+        t = result["test"]
+        out.append(f"\nTest of improvement {t['improvement_id']}: {t['conclusion']}")
+        out.append(f"Request it with:  aios improvement request --id {t['improvement_id']}")
     if result.get("created"):
         c = result["created"]
         out.append(f"\nPlan saved: project {c['project_id']} ({c['status']}), {len(c['task_ids'])} tasks.")
@@ -152,10 +169,19 @@ def main(argv: list[str] | None = None) -> int:
     tk.add_argument("--criteria-met", action="store_true")
     tk.add_argument("--note")
     ip = sub.add_parser("improvement")
-    ip.add_argument("action", choices=["list", "request", "rollback", "verify"])
+    ip.add_argument("action", choices=["list", "show", "test", "request", "rollback", "verify"])
     ip.add_argument("--id")
     ip.add_argument("--result", default="")
     ip.add_argument("--success", action="store_true")
+    ag = sub.add_parser("agent", help="agent prompt versions (activation is founder-only)")
+    ag.add_argument("action", choices=["versions", "activate", "show-prompt"])
+    ag.add_argument("agent_id")
+    ag.add_argument("version", nargs="?", type=int)
+    ag.add_argument("--why", default="activated from CLI")
+    dbp = sub.add_parser("db", help="export the database to JSON, or import an export into a new database")
+    dbp.add_argument("action", choices=["export", "import"])
+    dbp.add_argument("path")
+    dbp.add_argument("--url", help="target database URL for import (default: AIOS_DATABASE_URL)")
     ep = sub.add_parser("eval")
     ep.add_argument("agent")
     ep.add_argument("--model", required=True)
@@ -188,6 +214,17 @@ def _dispatch(args) -> int:
     from aios.db.enums import MemoryCategory, MemoryStatus, Provenance, TaskStatus
     from aios.modules import decisions, finance, improvements, memory, planning, status
 
+    if args.cmd == "db":  # before init(): an import needs an empty, freshly migrated target
+        from aios.config import get_settings
+        from aios.db.portable import export_db, import_db
+
+        if args.action == "export":
+            m = export_db(get_settings().database_url, args.path)
+            print(f"Exported {sum(m['counts'].values())} rows from {len(m['counts'])} tables to {args.path}")
+            return 0
+        r = import_db(args.url or get_settings().database_url, args.path)
+        print(json.dumps({k: r[k] for k in ("ok", "mismatched", "audit_chain")}, indent=2, default=str))
+        return 0 if r["ok"] else 1
     if args.cmd == "serve":
         import uvicorn
 
@@ -372,6 +409,43 @@ def _dispatch(args) -> int:
                 _p(improvements.verify(s, FOUNDER, _resolve_id(s, "improvements", args.id), result=args.result,
                                        success=args.success))
                 s.commit()
+            elif args.action == "show":
+                from aios.db.models import Improvement
+
+                _p(improvements.to_dict(s.get(Improvement, _resolve_id(s, "improvements", args.id))))
+            elif args.action == "test":
+                from aios.config import get_settings
+
+                if not get_settings().has_llm_credentials:
+                    print("Testing runs the agent's benchmark, which needs ANTHROPIC_API_KEY in .env.", file=sys.stderr)
+                    return 2
+                imp_id = _resolve_id(s, "improvements", args.id)
+                s.close()
+                res = asyncio.run(_engine(sm).run("test", "", options={"improvement_id": imp_id}))
+                _p(res) if args.json else print(render(res))
+                return 0 if res["status"] == "COMPLETED" else 1
+        elif args.cmd == "agent":
+            from aios.agents import registry
+            from aios.agents.specs import SPECS
+
+            if args.agent_id not in SPECS:
+                print(f"Unknown agent. Known: {', '.join(SPECS)}", file=sys.stderr)
+                return 2
+            if args.action == "versions":
+                for v in registry.versions(s, args.agent_id):
+                    print(f"v{v['version']}{' (active)' if v['active'] else ''}  {v['created_at'][:16]}  "
+                          f"by {v['created_by']}: {v['reason']}")
+            elif args.action == "show-prompt":
+                cfg = (registry.config_for_version(s, args.agent_id, args.version) if args.version
+                       else registry.active_config(s, args.agent_id))
+                print(f"# {args.agent_id} v{cfg.version}\n{cfg.system_prompt}")
+            elif args.action == "activate":
+                if args.version is None:
+                    print("Give the version number to activate.", file=sys.stderr)
+                    return 2
+                registry.activate_version(s, args.agent_id, args.version, "founder", None, args.why)
+                s.commit()
+                print(f"{args.agent_id} now runs version {args.version}.")
         elif args.cmd == "eval":
             from aios.llm.provider import build_registry
             from aios.modules.evaluations import run_benchmark

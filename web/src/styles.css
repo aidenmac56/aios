@@ -1533,3 +1533,7 @@ details.disclose[open] > summary::before {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* trend intelligence */
+.trend { border-top: 1px solid var(--rule); padding-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.trend:first-of-type { border-top: 0; padding-top: 4px; }

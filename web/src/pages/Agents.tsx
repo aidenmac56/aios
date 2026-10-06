@@ -1,9 +1,11 @@
+import { useState } from "react";
+import { api } from "../api";
 import { Badge } from "../components/Badge";
 import { Bullets, Card, Chips, KV, PageHead } from "../components/Card";
-import { EmptyState, Gate } from "../components/EmptyState";
+import { EmptyState, ErrorBox, Gate } from "../components/EmptyState";
 import { Table } from "../components/Table";
 import { dateTime, duration, relative, usd } from "../format";
-import { useApi } from "../hooks";
+import { useAction, useApi } from "../hooks";
 import { href, navigate } from "../router";
 import type { AgentDetail, AgentView } from "../types";
 
@@ -150,6 +152,11 @@ function AgentDetailPage({ id }: { id: string }) {
                       { key: "chars", header: "Prompt", num: true, render: (v) => `${v.prompt_chars.toLocaleString()} ch` },
                     ]}
                   />
+                  {a.versions.length > 1 && (
+                    <div style={{ padding: "12px 16px" }}>
+                      <ActivateVersion agentId={a.id} versions={a.versions.map((v) => v.version)} active={a.config_version} onDone={reload} />
+                    </div>
+                  )}
                 </Card>
               </div>
             </div>
@@ -187,5 +194,48 @@ function AgentDetailPage({ id }: { id: string }) {
         </>
       )}
     </Gate>
+  );
+}
+
+/** Founder-only: switch the live prompt version (e.g. to roll back by hand). Logged in the audit trail. */
+function ActivateVersion({ agentId, versions, active, onDone }: { agentId: string; versions: number[]; active: number; onDone: () => void }) {
+  const others = versions.filter((v) => v !== active);
+  const [version, setVersion] = useState<number>(others[0]);
+  const [why, setWhy] = useState("");
+  const { busy, error, run } = useAction();
+  if (others.length === 0) return null;
+
+  async function activate(e: React.FormEvent) {
+    e.preventDefault();
+    const r = await run(() => api.post(`/api/agents/${encodeURIComponent(agentId)}/activate`, { version, why: why.trim() }));
+    if (r) {
+      setWhy("");
+      onDone();
+    }
+  }
+
+  return (
+    <form className="inline-form" onSubmit={activate}>
+      <div className="row" style={{ gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <label className="field">
+          <span className="label">Switch live version to</span>
+          <select className="input" value={version} onChange={(e) => setVersion(Number(e.target.value))}>
+            {others.map((v) => (
+              <option key={v} value={v}>
+                v{v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field" style={{ flex: 1, minWidth: 180 }}>
+          <span className="label">Why</span>
+          <input className="input" value={why} onChange={(e) => setWhy(e.target.value)} placeholder="e.g. v3 made research answers worse" />
+        </label>
+        <button className="btn" type="submit" disabled={busy || why.trim().length < 3}>
+          Activate
+        </button>
+      </div>
+      <ErrorBox error={error} />
+    </form>
   );
 }

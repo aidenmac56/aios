@@ -88,9 +88,14 @@ the approval handler — not a background listener.
 | DEEP | claude-opus-5-5 | CEO synthesis, strategy, risk audit of high-impact decisions, conflicting evidence |
 
 The router picks a tier from: the agent's default, the task's declared complexity, workflow
-importance, budget remaining (downgrades when near a limit), and evaluation history (if a cheaper
-model scored within `routing.equivalence_margin` of the expensive one on that agent's benchmark, the
-cheaper one is used). Every choice is logged with its reason. Overrides live in `system_configuration`.
+importance, budget remaining (downgrades when near a limit), a floor for audits that must stay strong,
+and founder overrides in `system_configuration`. Every choice is logged with its reason.
+
+Evaluation history (benchmark scores for the agent's *active* prompt version) reaches routing in one
+of two ways. By default it produces an improvement ("route cfo to FAST: equivalent score, lower cost")
+that the founder tests and approves. If the founder sets `routing.auto_apply_eval_history`, the router
+switches to the cheapest model within `routing.equivalence_margin` on its own. Scores from inactive
+prompt versions never count.
 
 ## 5. Memory and provenance
 
@@ -122,7 +127,9 @@ Rules enforced in `modules/memory.py`, not in prompts:
   revenue, expenses, net cash flow, monthly burn rate, runway, gross margin, recurring costs, AI
   operating cost. Forecasts are never summed with actuals.
 - AI operating cost is the sum of `model_usage` + `tool_calls`, reported separately from bank data.
-- Adapters (`integrations/`) define the interface for Stripe, banks, accounting tools. None are built.
+- Adapters (`aios/integrations/`) implement `FinancialSource.fetch()` and go through the same
+  `finance.ingest` path as a CSV upload. Built: CSV. Not built until needed: Stripe, bank feeds,
+  accounting software.
 
 ## 7. Planning
 
@@ -171,6 +178,27 @@ looks for a fresh report on the same question and reuses it. Stale reports are f
 Live search uses Anthropic's server-side web search tool; if it is unavailable the report says so and
 caps confidence at LOW. Sources are never invented: only URLs returned by the search tool are stored.
 
+## 10b. Improvement loop
+
+OBSERVE (`observations()`: measured facts only) → PROPOSE (COO, CTO, Analytics review the facts; each
+proposal needs evidence, root cause, change, impact, cost, risk, test plan, rollback; Risk reviews the
+proposals) → TEST + COMPARE (`aios improvement test`: the agent's benchmark runs on the current setup
+and on the candidate inside one workflow run, stored as an `experiment`; verdict BETTER / EQUIVALENT /
+WORSE against `routing.equivalence_margin`; nothing live changes) → APPROVE (founder) → IMPLEMENT
+(config change, or a new agent prompt version activated) → VERIFY (`aios improvement verify`) →
+ROLLBACK if needed (restores the old config value or prompt version).
+
+Prompt changes are never edits in place: a `prompt_addendum` becomes a new row in
+`agent_config_versions` (reason, expected improvement, rollback version), benchmarked while inactive,
+and activated only by the founder.
+
+## 10c. Trend intelligence
+
+`aios trends "<topic>"`: Research gathers live signals; the CMO scores each trend on signal, evidence,
+evidence strength, trajectory, market impact, relevance to this company, opportunity, cost to test,
+risks and confidence, and flags trends that are mostly viral discussion. Without live search, no trend
+can be rated HIGH confidence (enforced in code).
+
 ## 11. Audit log, events, errors, security
 
 - `audit_log`: who, what, when, why, input, output, tools, cost, approval, result, error, plus a hash
@@ -195,7 +223,9 @@ future scheduler can subscribe to them. Nothing in the core assumes a human is w
 1. `pip install psycopg[binary]`, set `AIOS_DATABASE_URL=postgresql+psycopg://...`.
 2. `alembic upgrade head` (migrations are dialect-neutral; the audit-log triggers have a PostgreSQL
    branch in the migration).
-3. Copy data with `aios db export` / `aios db import` (JSON per table, ids preserved).
+3. Copy data: `aios db export ./export` on the old database, then
+   `aios db import ./export --url postgresql+psycopg://...` (JSON per table; ids, timestamps and the
+   audit-log hash chain preserved; refuses a non-empty target; verifies row counts and the chain).
 
 ## 14. Data model (tables)
 

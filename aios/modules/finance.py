@@ -11,6 +11,7 @@ import io
 import re
 import statistics
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime
 
 from sqlalchemy import func, select
@@ -101,27 +102,29 @@ def _vendor(session: Session, name: str, ai_keywords: list[str]) -> Vendor:
     return v
 
 
-def import_csv(session: Session, actor: Actor, *, text: str, filename: str, account_name: str = "Primary",
-               amounts_negative_for_spend: bool = True) -> dict:
-    """Validate and import a CSV of transactions. Bad rows are rejected with reasons; duplicates skipped."""
-    require(actor, db_write("finance"), action="import transactions")
-    reader = csv.DictReader(io.StringIO(text.lstrip("﻿")))
+@dataclass
+class RawTransaction:
+    """One transaction as a source reports it, before validation-dependent enrichment."""
+
+    txn_date: date
+    description: str
+    amount_cents: int  # + money in, - money out
+    status: TxnStatus = TxnStatus.ACTUAL
+    external_id: str | None = None
+    category: str | None = None  # a category the source already assigned, if any
+
+
+def parse_csv(text: str, *, amounts_negative_for_spend: bool = True) -> tuple[list[tuple[int, RawTransaction]], list[dict]]:
+    """Parse and validate a bank CSV. Returns ([(line, record)], [rejected rows with reasons])."""
+    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")))
     if not reader.fieldnames:
         raise ValidationFailed("CSV has no header row.")
     cols = _map_headers(reader.fieldnames)
     if "date" not in cols or "description" not in cols or not ("amount" in cols or "debit" in cols or "credit" in cols):
         raise ValidationFailed("CSV needs date, description, and amount (or debit/credit) columns.",
                                found=reader.fieldnames)
-    account = get_or_create_account(session, account_name)
-    batch = ImportBatch(filename=filename, account_id=account.id, imported_by=str(actor))
-    session.add(batch)
-    session.flush()
-    rules = sysconfig.get(session, "finance.categories")
-    ai_keywords = rules.get("ai_tools", [])
-    seen: dict[tuple, int] = defaultdict(int)
-    accepted = rejected = dupes = 0
+    records: list[tuple[int, RawTransaction]] = []
     errors: list[dict] = []
-    revenue_added = expense_added = 0
     for i, row in enumerate(reader, start=2):  # header is line 1
         try:
             d = parse_date(row.get(cols["date"], "") or "")
@@ -138,26 +141,54 @@ def import_csv(session: Session, actor: Actor, *, text: str, filename: str, acco
                 if not debit and not credit:
                     raise ValueError("no amount")
                 amount = (to_cents(credit) if credit else 0) - (abs(to_cents(debit)) if debit else 0)
-            if amount == 0:
-                raise ValueError("zero amount")
-            if abs(amount) > 10_000_000_00:
-                raise ValueError("amount over $10M; check the file")
             status_raw = (row.get(cols["status"], "") if "status" in cols else "").strip().upper()
             status = TxnStatus(status_raw) if status_raw in TxnStatus.__members__ else TxnStatus.ACTUAL
             ext = (row.get(cols["id"], "") if "id" in cols else "").strip() or None
+            cat = (row.get(cols["category"], "") if "category" in cols else "").strip() or None
         except (ValueError, KeyError, ArithmeticError) as e:
-            rejected += 1
             errors.append({"line": i, "error": str(e), "row": {k: v for k, v in row.items() if k}})
             continue
-        key = (account.id, d.isoformat(), amount, desc.lower(), ext)
+        records.append((i, RawTransaction(d, desc, amount, status, ext, cat)))
+    return records, errors
+
+
+def ingest(session: Session, actor: Actor, records: list[tuple[int, RawTransaction]], *, source_label: str,
+           account_name: str = "Primary", errors: list[dict] | None = None,
+           provenance: Provenance = Provenance.FINANCIAL_IMPORT) -> dict:
+    """The single path every financial source goes through: validate, dedupe, categorize, store, audit."""
+    require(actor, db_write("finance"), action="import transactions")
+    errors = list(errors or [])
+    rejected = len(errors)
+    account = get_or_create_account(session, account_name)
+    batch = ImportBatch(filename=source_label, account_id=account.id, imported_by=str(actor))
+    session.add(batch)
+    session.flush()
+    rules = sysconfig.get(session, "finance.categories")
+    ai_keywords = rules.get("ai_tools", [])
+    seen: dict[tuple, int] = defaultdict(int)
+    accepted = dupes = 0
+    revenue_added = expense_added = 0
+    for line, r in records:
+        problem = None
+        if r.amount_cents == 0:
+            problem = "zero amount"
+        elif abs(r.amount_cents) > 10_000_000_00:
+            problem = "amount over $10M; check the source"
+        elif not r.description.strip():
+            problem = "empty description"
+        if problem:
+            rejected += 1
+            errors.append({"line": line, "error": problem})
+            continue
+        desc, amount = r.description.strip(), r.amount_cents
+        key = (account.id, r.txn_date.isoformat(), amount, desc.lower(), r.external_id)
         seen[key] += 1
         digest = hashlib.sha256(f"{key}|{seen[key]}".encode()).hexdigest()
         if session.execute(select(Transaction.id).where(Transaction.dedupe_hash == digest)).first():
             dupes += 1
             continue
-        csv_cat = (row.get(cols["category"], "") if "category" in cols else "").strip().lower()
-        if csv_cat:
-            cat = re.sub(r"[^a-z0-9_]+", "_", csv_cat).strip("_")
+        if r.category:
+            cat = re.sub(r"[^a-z0-9_]+", "_", r.category.lower()).strip("_")
             is_rev = amount > 0 and any(w in cat for w in ("revenue", "income", "sales"))
             is_tr = "transfer" in cat
             cat_source = "IMPORT"
@@ -167,14 +198,14 @@ def import_csv(session: Session, actor: Actor, *, text: str, filename: str, acco
         v = _vendor(session, vendor_name(desc), ai_keywords)
         if cat_source == "RULE" and cat.startswith("uncategorized") and v.is_ai_provider and amount < 0:
             cat = "ai_tools"
-        session.add(Transaction(account_id=account.id, txn_date=d, description=desc, amount_cents=amount,
+        session.add(Transaction(account_id=account.id, txn_date=r.txn_date, description=desc, amount_cents=amount,
                                 category=cat, category_source=cat_source, is_revenue=is_rev, is_transfer=is_tr,
-                                vendor_id=v.id, status=status, source=Provenance.FINANCIAL_IMPORT,
-                                import_batch_id=batch.id, external_id=ext, dedupe_hash=digest))
+                                vendor_id=v.id, status=r.status, source=provenance, import_batch_id=batch.id,
+                                external_id=r.external_id, dedupe_hash=digest))
         accepted += 1
-        if is_rev:
+        if r.status == TxnStatus.ACTUAL and is_rev:
             revenue_added += amount
-        elif amount < 0 and not is_tr:
+        elif r.status == TxnStatus.ACTUAL and amount < 0 and not is_tr:
             expense_added += -amount
     batch.row_count = accepted + rejected + dupes
     batch.accepted, batch.rejected, batch.duplicates, batch.errors = accepted, rejected, dupes, errors[:200]
@@ -185,12 +216,20 @@ def import_csv(session: Session, actor: Actor, *, text: str, filename: str, acco
         events.emit(session, events.REVENUE_ADDED, str(actor), {"batch_id": batch.id, "cents": revenue_added})
     if expense_added:
         events.emit(session, events.EXPENSE_ADDED, str(actor), {"batch_id": batch.id, "cents": expense_added})
-    audit.record(session, who=str(actor), what="finance.import", why=f"import {filename}",
-                 input={"filename": filename, "account": account_name},
+    audit.record(session, who=str(actor), what="finance.import", why=f"import {source_label}",
+                 input={"source": source_label, "account": account_name},
                  output={"accepted": accepted, "rejected": rejected, "duplicates": dupes},
                  target_type="import_batch", target_id=batch.id)
     return {"batch_id": batch.id, "accepted": accepted, "rejected": rejected, "duplicates": dupes,
-            "errors": errors[:50]}
+            "errors": sorted(errors, key=lambda e: e["line"])[:50]}
+
+
+def import_csv(session: Session, actor: Actor, *, text: str, filename: str, account_name: str = "Primary",
+               amounts_negative_for_spend: bool = True) -> dict:
+    """Validate and import a CSV of transactions. Bad rows are rejected with reasons; duplicates skipped."""
+    require(actor, db_write("finance"), action="import transactions")
+    records, errors = parse_csv(text, amounts_negative_for_spend=amounts_negative_for_spend)
+    return ingest(session, actor, records, source_label=filename, account_name=account_name, errors=errors)
 
 
 def detect_subscriptions(session: Session) -> list[Subscription]:

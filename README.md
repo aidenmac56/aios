@@ -15,6 +15,7 @@ pip install -e ".[dev]"
 cp .env.example .env          # then put your ANTHROPIC_API_KEY in .env
 aios init                     # creates data/aios.db
 aios seed                     # loads your founder memory (review aios/seed/founder_seed.json first)
+aios doctor --live            # confirms the key, model access and web search work (a few cents)
 aios serve                    # dashboard at http://127.0.0.1:8787
 ```
 
@@ -37,7 +38,12 @@ metrics, the dashboard, memory, planning and audit logs all work without a key; 
 | `aios audit` / `aios improve` | Audit the whole company from measured data; improvements with problem, evidence, root cause, change, impact, cost, risk, test and rollback. Nothing changes until you approve. |
 | `aios cost` / `aios agents` / `aios status` / `aios memory` | Costs by agent/model/workflow/day, the org chart, the whole company state, founder memory. |
 | `aios outcome <decision> --actual ... --assessment GOOD\|MIXED\|POOR --why ...` | Record what really happened so future recommendations learn from it. |
-| `aios eval <agent> --model <model>` | Run an agent's benchmark; results steer model routing. |
+| `aios trends "topic"` | Which trends have real evidence and matter to this company, and which are just buzz. |
+| `aios improvement test --id <id>` | Benchmark the current setup against a proposed routing or prompt change. Changes nothing live. |
+| `aios agent versions <agent>` / `aios agent activate <agent> <v>` | See an agent's prompt versions; switch the live one (you only). |
+| `aios eval <agent> --model <model>` | Run an agent's benchmark; results feed improvement proposals. |
+| `aios doctor [--live]` | Check the installation; `--live` makes one tiny real model call and one web search (a few cents). |
+| `aios db export DIR` / `aios db import DIR --url URL` | Move everything to a new database (e.g. PostgreSQL) with ids and the audit chain intact. |
 
 The same commands exist as Claude Code slash commands in `.claude/commands/` (`/ceo`, `/board`, `/research`, ...).
 
@@ -50,6 +56,7 @@ The same commands exist as Claude Code slash commands in `.claude/commands/` (`/
 - **Approval gates.** Only you can approve spending, communication, publishing, deletion, system changes and decisions. No agent can grant itself permissions or touch the audit log (the database rejects updates and deletes).
 - **Budgets.** Per task, workflow, day, agent and model. When a limit would be crossed the run stops and returns what it finished.
 - **Every model call is costed** (`model_usage`), so you can see which agent, workflow or model costs the most.
+- **Improvements are tested before you decide.** A proposed routing or prompt change is benchmarked against the current setup; prompt changes become new versions that go live only when you approve and roll back in one step.
 
 ## Layout
 

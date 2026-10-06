@@ -584,7 +584,9 @@ class Engine:
             imp.status = ImprovementStatus.TESTING
             s.commit()
             exp_id = exp.id
-        rc.progress(f"test: {plan['agent']} baseline {plan['baseline']} vs candidate {plan['candidate']}")
+        b, c = plan["baseline"], plan["candidate"]
+        rc.progress(f"test {plan['agent']}: current {b['model']} (prompt v{b['config_version']}) vs proposed "
+                    f"{c['model']} (prompt v{c['config_version']}) on the {plan['agent']} benchmark")
         try:
             base = await run_benchmark(self.sm, rc.providers, plan["agent"], plan["baseline"]["model"],
                                        config_version=plan["baseline"]["config_version"], experiment_id=exp_id,

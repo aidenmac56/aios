@@ -8,6 +8,7 @@ import { FindingView } from "../components/FindingView";
 import { FinanceSnapshot } from "../components/FinanceSnapshot";
 import { ImprovementCard } from "../components/ImprovementCard";
 import { Table } from "../components/Table";
+import { TestView, TrendsView } from "../components/TestAndTrends";
 import { dateTime, duration, humanize, parseDate, shortId, usd } from "../format";
 import { useApi } from "../hooks";
 import { href } from "../router";
@@ -186,7 +187,11 @@ function Run({ run, active, reload }: { run: RunDetail; active: boolean; reload:
           <Table<AgentRunRow>
             rows={run.agent_runs}
             rowKey={(r) => r.id}
-            empty={<EmptyState title={active ? "No agent has started yet" : "No agents ran"}>{active ? "Agent runs appear here as they start." : "This workflow computed its result without a model."}</EmptyState>}
+            empty={<EmptyState title={active ? "No agent has started yet" : "No agents ran"}>{active
+                  ? "Agent runs appear here as they start."
+                  : run.cost_usd > 0
+                    ? "This workflow called models directly (for example benchmark cases) rather than through agents; its model calls are on the AI costs page."
+                    : "This workflow computed its result without a model."}</EmptyState>}
             columns={[
               {
                 key: "agent",
@@ -336,6 +341,10 @@ function ResultSections({ res, run }: { res: RunResult; run: RunDetail }) {
           Completed work is kept. {res.remaining && res.remaining.length > 0 ? `Not finished: ${res.remaining.join(", ")}.` : ""} Raise budget.workflow_limit_usd in Settings or rerun with a narrower request.
         </Callout>
       )}
+
+      {res.test && <TestView test={res.test} />}
+
+      {res.trends && <TrendsView report={res.trends} />}
 
       {res.brief && (
         <Card title="Executive brief" sub="Synthesized by the CEO after an independent risk audit.">

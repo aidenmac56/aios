@@ -293,6 +293,7 @@ export interface AgentDetail extends AgentView {
     prompt_chars: number;
     rollback_to: number | null;
     test_results: unknown;
+    active?: boolean;
   }[];
   system_prompt: string | null;
   recent_runs: AgentRunRow[];
@@ -559,6 +560,8 @@ export interface ApiErrorBody {
 }
 
 export interface RunResult {
+  test?: TestResult;
+  trends?: TrendReport;
   brief?: ExecutiveBrief;
   risk_audit?: RiskAudit | null;
   founder_alignment?: TwinAlignment | null;
@@ -741,11 +744,75 @@ export interface Improvement {
   metric: string | null;
   change_spec: { type: string; key: string; value: string } | null;
   status: string;
-  test_results: { applied?: { key: string; old: unknown; new: unknown; at: string }; verification?: unknown; [k: string]: unknown } | null;
+  test_results: {
+    applied?: AppliedChange;
+    verification?: unknown;
+    verdict?: "BETTER" | "EQUIVALENT" | "WORSE";
+    score_delta?: number;
+    cost_delta_usd?: number;
+    experiment_id?: string;
+    baseline?: TestArm;
+    candidate?: TestArm;
+    candidate_version?: number;
+    [k: string]: unknown;
+  } | null;
   priority_score: number | null;
   proposed_by: string | null;
   audit_id: string | null;
   created_at: string;
+}
+
+/** Config change ({key, old, new}) or prompt change ({type:"prompt", agent, old_version, new_version}). */
+export interface AppliedChange {
+  type?: "prompt";
+  key?: string;
+  old?: unknown;
+  new?: unknown;
+  agent?: string;
+  old_version?: number;
+  new_version?: number;
+  at: string;
+}
+
+export interface TestArm {
+  model: string;
+  config_version: number;
+  avg_score: number;
+  total_cost_usd: number;
+}
+
+export interface TestResult {
+  improvement_id: string;
+  experiment_id: string;
+  verdict: "BETTER" | "EQUIVALENT" | "WORSE";
+  conclusion: string;
+  baseline: TestArm & { cases: { case: string; score: number; error: string | null }[] };
+  candidate: TestArm & { cases: { case: string; score: number; error: string | null }[] };
+}
+
+export interface TrendItem {
+  name: string;
+  category: string;
+  signal: string;
+  evidence: { claim: string; source: string; source_type: string; confidence: string }[];
+  evidence_strength: "STRONG" | "MODERATE" | "WEAK";
+  mostly_viral_discussion: boolean;
+  trajectory: string;
+  market_impact: string;
+  relevance: "HIGH" | "MEDIUM" | "LOW";
+  relevance_why: string;
+  business_opportunity: string;
+  cost_to_test_usd: number;
+  risks: string[];
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+}
+
+export interface TrendReport {
+  summary: string;
+  trends: TrendItem[];
+  ignore: string[];
+  experiments: { hypothesis: string; metric: string; success_threshold: string; budget_usd: number; duration_days: number }[];
+  note?: string;
 }
 
 export interface AuditLogEntry {

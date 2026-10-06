@@ -25,7 +25,6 @@ from aios.core.errors import AIOSError, MissingCredentials
 from aios.core.util import micros_to_usd, to_cents
 from aios.db.enums import ApprovalStatus, MemoryCategory, MemoryStatus, Provenance, TaskStatus
 from aios.db.models import (
-    AgentConfigVersion,
     AgentRun,
     Approval,
     Audit,
@@ -120,15 +119,41 @@ def get_agent(agent_id: str, s=Depends(_session)):
     view = next((a for a in status.agents_view(s) if a["id"] == agent_id), None)
     if view is None:
         raise HTTPException(404, "agent not found")
-    versions = s.execute(select(AgentConfigVersion).where(AgentConfigVersion.agent_id == agent_id)
-                         .order_by(AgentConfigVersion.version.desc())).scalars().all()
+    from aios.agents import registry
+
     runs = s.execute(select(AgentRun).where(AgentRun.agent_id == agent_id).order_by(AgentRun.created_at.desc()).limit(20)).scalars()
-    return {**view,
-            "versions": [{"version": v.version, "reason": v.reason, "created_by": v.created_by,
-                          "created_at": v.created_at.isoformat(), "prompt_chars": len(v.system_prompt),
-                          "rollback_to": v.rollback_to_version, "test_results": v.test_results} for v in versions],
-            "system_prompt": versions[-1].system_prompt if versions else None,
+    versions = list(reversed(registry.versions(s, agent_id)))
+    for v in versions:
+        v["rollback_to"] = v.pop("rollback_to_version")
+    return {**view, "versions": versions, "system_prompt": registry.active_config(s, agent_id).system_prompt,
             "recent_runs": [_run_row(r) for r in runs]}
+
+
+class ActivateIn(BaseModel):
+    version: int
+    why: str = Field(min_length=3, max_length=500)
+
+
+@app.post("/api/agents/{agent_id}/activate", dependencies=[api])
+def activate_agent_version(agent_id: str, body: ActivateIn, s=Depends(_session)):
+    from aios.agents import registry
+    from aios.agents.specs import SPECS
+
+    if agent_id not in SPECS:
+        raise HTTPException(404, "agent not found")
+    registry.activate_version(s, agent_id, body.version, "founder", None, body.why)
+    s.commit()
+    return {"agent_id": agent_id, "active_version": body.version}
+
+
+@app.get("/api/experiments", dependencies=[api])
+def list_experiments(s=Depends(_session)):
+    from aios.db.models import Experiment
+
+    return [{"id": e.id, "hypothesis": e.hypothesis, "metric": e.metric, "variant_a": e.variant_a,
+             "variant_b": e.variant_b, "results": e.results, "status": e.status, "conclusion": e.conclusion,
+             "improvement_id": e.improvement_id, "domain": e.domain, "created_at": e.created_at.isoformat()}
+            for e in s.execute(select(Experiment).order_by(Experiment.created_at.desc()).limit(100)).scalars()]
 
 
 def _run_row(r: AgentRun) -> dict:
@@ -179,7 +204,8 @@ class CommandIn(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
-ALLOWED_OPTIONS = {"importance", "budget_usd", "force", "decision_id", "research", "no_commentary", "focus"}
+ALLOWED_OPTIONS = {"importance", "budget_usd", "force", "decision_id", "research", "no_commentary", "focus",
+                   "improvement_id"}
 
 
 @app.post("/api/commands/{command}", dependencies=[api])
