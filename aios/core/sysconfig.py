@@ -53,7 +53,8 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
         },
         "Keyword rules for transaction categories. First match wins; 'transfer' is excluded from revenue/expense.",
     ),
-    "founder.principles": ([], "Founder principles the planner checks against, e.g. {\"key\":\"preserve_cash\"}."),
+    "finance.cogs_categories": ([], "Expense categories counted as cost of goods sold for gross margin."),
+    "founder.principles": ([],"Founder principles the planner checks against, e.g. {\"key\":\"preserve_cash\"}."),
 }
 
 
