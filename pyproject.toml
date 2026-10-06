@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aios"
+version = "0.1.0"
+description = "AI Company OS: a digital twin and AI-native organization around one founder."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "pydantic>=2.6",
+  "sqlalchemy>=2.0",
+  "alembic>=1.13",
+  "anthropic>=0.40",
+  "httpx>=0.27",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+postgres = ["psycopg[binary]>=3.1"]
+
+[project.scripts]
+aios = "aios.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["aios*"]
+
+[tool.setuptools.package-data]
+aios = ["seed/*.json", "migrations/*.py", "migrations/versions/*.py", "migrations/*.mako", "web_dist/**/*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

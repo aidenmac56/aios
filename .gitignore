@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.env
+data/
+*.db
+*.db-wal
+*.db-shm
+.pytest_cache/
+web/node_modules/
+web/dist/
+aios/web_dist/
+*.egg-info/
+build/
+dist/
+.venv/
