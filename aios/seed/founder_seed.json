@@ -1,0 +1,39 @@
+{
+  "_about": "Founder memory seeded from what Aiden said in Claude conversations (Feb-Oct 2026). Review before loading. EXPLICIT = he said it. INFERRED = Claude's reading, not confirmed. Edit or delete anything that is wrong; corrections later should use `aios memory correct`.",
+  "founder": {"name": "Aiden McCaffery", "timezone": "America/Los_Angeles"},
+  "company": {
+    "name": "Aiden McCaffery AI",
+    "vision": "A quiet, highly profitable one-founder AI company that runs mostly on its own systems.",
+    "mission": "Tell business owners what AI news means for them, then build the AI systems that save them time and money.",
+    "strategy": "Personal brand under Aiden's name. Weekly AI-news content (YouTube first, clips to TikTok and Instagram) feeds a newsletter, which books calls, which become consulting clients. Niche can change; the engine stays.",
+    "business_model": "Free content and newsletter -> free 20-minute AI quick-wins call -> paid AI audit -> paid automation builds -> monthly retainers.",
+    "products": ["Weekly AI news content", "Newsletter: The Weekly AI Brief", "AI Audit", "AI automation builds", "Retainer"],
+    "customers": ["Small business owners, starting with local service businesses in San Diego"]
+  },
+  "memories": [
+    {"category": "FOUNDER", "subject": "name", "content": "Aiden McCaffery.", "status": "EXPLICIT", "source_ref": "chat 2026-10-05"},
+    {"category": "FOUNDER", "subject": "current_top_priority", "content": "Start a business. School is handled in separate chats.", "status": "EXPLICIT", "source_ref": "chat 2026-10-05 interview", "tags": ["priority"]},
+    {"category": "FOUNDER", "subject": "business_direction", "content": "Build a YouTube, TikTok and Instagram presence around AI consulting that tells people the latest AI news; one YouTube channel to start; get clients, book calls, run a newsletter.", "status": "EXPLICIT", "source_ref": "chat 2026-10-05", "tags": ["business", "content", "consulting"]},
+    {"category": "FOUNDER", "subject": "niche_flexibility", "content": "The niche and the plan may change later; the system must be able to switch niche.", "status": "EXPLICIT", "source_ref": "chat 2026-10-05", "tags": ["business"]},
+    {"category": "FOUNDER", "subject": "delegation_preference", "content": "Wants the system to step in and make decisions on where to start, not just list options.", "status": "EXPLICIT", "source_ref": "chat 2026-10-05", "tags": ["decision_style"]},
+    {"category": "FOUNDER", "subject": "core_value", "content": "Freedom and independence is the one thing he would optimize his life for.", "status": "EXPLICIT", "source_ref": "chat 2026-02-14 (purpose questions)", "tags": ["values"]},
+    {"category": "FOUNDER", "subject": "core_drive", "content": "Wants to prove something to himself.", "status": "EXPLICIT", "source_ref": "chat 2026-02-14", "tags": ["values"]},
+    {"category": "FOUNDER", "subject": "definition_of_success", "content": "A quiet empire that prints money while he lives freely.", "status": "EXPLICIT", "source_ref": "chat 2026-02-14", "tags": ["values", "goal"]},
+    {"category": "FOUNDER", "subject": "risk_preference", "content": "Calculated aggressive: big swings, but sized and planned so one loss cannot hurt badly.", "status": "EXPLICIT", "source_ref": "chat 2026-10-05 interview", "tags": ["risk", "principle:sized_risk"]},
+    {"category": "FOUNDER", "subject": "wants_system_better_than_him_at", "content": "Being more disciplined, a sharper and more educated thinker, and smoother socially.", "status": "EXPLICIT", "source_ref": "chat 2026-10-05 interview", "tags": ["standards"]},
+    {"category": "FOUNDER", "subject": "writing_style", "content": "Brief, simple, straightforward. Casual with friends, clean and direct for work. Never sound like AI, never over-explain, no fake enthusiasm.", "status": "EXPLICIT", "source_ref": "chat 2026-10-05 interview", "tags": ["voice", "standards"]},
+    {"category": "FOUNDER", "subject": "education", "content": "University of San Diego student; Finance and Real Estate majors, Economics minor.", "status": "EXPLICIT", "source_ref": "chat 2026-05 (course planning)", "tags": ["background"]},
+    {"category": "FOUNDER", "subject": "built_trading_bot", "content": "Built SEAKINGALPHA, an automated options trading bot. Proof he can build, not just talk.", "status": "EXPLICIT", "source_ref": "chat 2026-05 (course planning, career advisor notes)", "tags": ["background", "credibility"]},
+    {"category": "FOUNDER", "subject": "career_fit_noted", "content": "A career advisor meeting concluded quant trading / quant development fit him best.", "status": "EXPLICIT", "source_ref": "chat 2026-05-14 (meeting notes he wrote)", "tags": ["background"]},
+    {"category": "SYSTEM", "subject": "no_background_jobs_yet", "content": "Do not build scheduled tasks or background agents yet. Everything runs from manual commands, explicit actions, or events caused by an approved action.", "status": "EXPLICIT", "source_ref": "master prompt 2026-10-05", "tags": ["system", "principle:no_background_jobs"]},
+    {"category": "SYSTEM", "subject": "founder_final_authority", "content": "The founder remains the final authority. Spending, sending, publishing, deleting and system changes need his approval.", "status": "EXPLICIT", "source_ref": "master prompt 2026-10-05", "tags": ["system", "principle:approval_gates"]},
+    {"category": "FOUNDER", "subject": "time_constraint_school", "content": "Full-time student with exams and quizzes, so business work has to fit around coursework (roughly 6-8 hours a week was assumed in the first plan).", "status": "INFERRED", "provenance": "AGENT_INFERENCE", "source_ref": "inferred from study-planning chats 2026-09/10; hours are Claude's assumption", "tags": ["constraint"]},
+    {"category": "FOUNDER", "subject": "prefers_action_over_planning", "content": "Prefers getting started quickly over long planning.", "status": "HYPOTHESIS", "provenance": "AGENT_INFERENCE", "source_ref": "inferred from how he phrases requests ('step in', 'decide for me'); weak evidence", "tags": ["decision_style"]}
+  ],
+  "decisions": [
+    {"question": "What should the brand be named?", "recommendation": "Use his real name (Aiden McCaffery) so the brand survives a niche change.", "decision_type": "MARKETING", "reasoning": "Consulting sells trust; a name brand carries across niches.", "maker": "delegated:claude-chat-2026-10-05"},
+    {"question": "Face on camera or a faceless AI channel?", "recommendation": "Real face first; AI avatar only for shorts after week 9.", "decision_type": "MARKETING", "reasoning": "Clients book people; YouTube has been demonetizing mass-produced faceless AI content.", "maker": "delegated:claude-chat-2026-10-05"},
+    {"question": "Which platform first?", "recommendation": "YouTube long-form weekly, cut into clips for TikTok, Reels and Shorts.", "decision_type": "MARKETING", "reasoning": "Search traffic compounds; one shoot feeds three platforms.", "maker": "delegated:claude-chat-2026-10-05"},
+    {"question": "What is the first offer?", "recommendation": "Free 20-minute AI quick-wins call leading to a $497 AI audit.", "decision_type": "GENERAL", "reasoning": "Low-friction yes first, money second; first 2-3 clients cheap or free for case studies.", "maker": "delegated:claude-chat-2026-10-05"}
+  ]
+}

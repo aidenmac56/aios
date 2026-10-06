@@ -65,7 +65,7 @@ def _prompt(*, objective: str, request: str, context_text: str, deps_text: str, 
 async def run_agent(rc: RunCtx, *, agent_id: str, key: str, objective: str, context_text: str = "",
                     deps: dict[str, dict] | None = None, complexity: str | None = None,
                     schema: type[BaseModel] | None = None, floor_tier: str | None = None, extra: str = "",
-                    creator: str = "agent:ceo") -> AgentResult:
+                    creator: str = "agent:ceo", reuse: bool = True) -> AgentResult:
     from aios.orchestrator.context import dependency_block
 
     with rc.sm() as s:
@@ -98,7 +98,7 @@ async def run_agent(rc: RunCtx, *, agent_id: str, key: str, objective: str, cont
     try:
         if agent_id == "research" and out_schema is ResearchFinding:
             output = await _research(rc, ctx, cfg, route, objective=objective, context_text=context_text,
-                                     deps_text=deps_text, max_searches=max_searches)
+                                     deps_text=deps_text, max_searches=max_searches, reuse=reuse)
         else:
             prompt = _prompt(objective=objective, request=rc.request, context_text=context_text, deps_text=deps_text,
                              extra=extra)
@@ -155,9 +155,9 @@ def _finish(rc: RunCtx, run_id: str, task_id: str, run_status: RunStatus, task_s
 
 
 async def _research(rc: RunCtx, ctx: CallContext, cfg, route, *, objective: str, context_text: str, deps_text: str,
-                    max_searches: int) -> dict[str, Any]:
+                    max_searches: int, reuse: bool = True) -> dict[str, Any]:
     with rc.sm() as s:
-        reuse = research.find_reusable(s, objective)
+        reuse = research.find_reusable(s, objective) if reuse else None
         if reuse is not None:
             rc.progress(f"research: reusing report {reuse.id} (fresh, same question)")
             rc.research_report_ids.append(reuse.id)

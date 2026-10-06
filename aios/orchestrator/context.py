@@ -76,5 +76,6 @@ def dependency_block(outputs: dict[str, dict]) -> str:
         return ""
     chunks = []
     for key, out in outputs.items():
-        chunks.append(f"### {key} ({out.get('_agent', '?')})\n{json.dumps(out, default=str)[:6000]}")
+        label = out.get("_agent", "record") if isinstance(out, dict) else "record"
+        chunks.append(f"### {key} ({label})\n{json.dumps(out, default=str)[:6000]}")
     return "FINDINGS FROM OTHER AGENTS (check their evidence; do not defer to them):\n" + "\n\n".join(chunks)

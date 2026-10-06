@@ -261,8 +261,7 @@ class Engine:
                 events.emit(s, events.AUDIT_COMPLETED, "agent:risk", {"verdict": risk["verdict"]}, rc.run_id)
                 s.commit()
         twin_res = await run_agent(
-            rc, agent_id="twin", key="twin", schema=TwinAlignment, complexity="low",
-            context_text=ctxmod.build(self.sm(), request, include_finance=False) if False else context_text,
+            rc, agent_id="twin", key="twin", schema=TwinAlignment, complexity="low", context_text=context_text,
             deps={**ok, **({"risk": risk} if risk else {})},
             objective="State how the options in these findings fit the founder's goals and preferences. Cite memory ids "
                       "and their status. List preferences that matter here but are unknown.")
@@ -433,12 +432,8 @@ class Engine:
 
     async def wf_research(self, rc: RunCtx, request: str, options: dict) -> dict:
         context_text = self._context(request)
-        if options.get("force"):
-            with self.sm() as s:  # make reuse impossible for this question by asking for a fresh angle
-                pass
         res = await run_agent(rc, agent_id="research", key="research", schema=ResearchFinding, complexity="high",
-                              context_text=context_text,
-                              objective=request if not options.get("force") else f"{request} (fresh research requested {utcnow().date()})")
+                              context_text=context_text, objective=request, reuse=not options.get("force"))
         if not res.ok:
             raise AIOSError(f"Research failed: {res.error}")
         return {"research": res.output}
