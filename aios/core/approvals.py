@@ -92,7 +92,7 @@ def approve(session: Session, approval_id: str, actor: Actor, note: str | None =
         result = _approve_handlers[kind](session, appr, actor) or {}
     audit.record(session, who=str(actor), what="approval.approved", why=note, approval_id=appr.id,
                  input={"action": appr.action}, output=result, target_type="approval", target_id=appr.id)
-    return {"approval_id": appr.id, "status": appr.status.value, **result}
+    return {**result, "approval_id": appr.id, "status": appr.status.value}
 
 
 def reject(session: Session, approval_id: str, actor: Actor, note: str | None = None) -> dict[str, Any]:
@@ -107,4 +107,4 @@ def reject(session: Session, approval_id: str, actor: Actor, note: str | None = 
         result = _reject_handlers[kind](session, appr, actor) or {}
     audit.record(session, who=str(actor), what="approval.rejected", why=note, approval_id=appr.id,
                  input={"action": appr.action}, output=result, target_type="approval", target_id=appr.id)
-    return {"approval_id": appr.id, "status": appr.status.value, **result}
+    return {**result, "approval_id": appr.id, "status": appr.status.value}

@@ -113,7 +113,7 @@ def company_status(session: Session) -> dict:
     principles = planning.principles(session)
     mem = memory.retrieve(session, "goal priority principle", limit=8)
     return {
-        "companies": [{"id": c.id, "name": c.name, "mission": c.mission, "strategy": c.strategy,
+        "companies": [{"id": c.id, "name": c.name, "vision": c.vision, "mission": c.mission, "strategy": c.strategy,
                        "business_model": c.business_model, "products": c.products, "customers": c.customers}
                       for c in companies],
         "priorities": plan["top_tasks"][:5],

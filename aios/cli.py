@@ -172,6 +172,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     try:
         return _dispatch(args)
+    except BrokenPipeError:  # output piped into `head` etc.
+        return 0
     except AIOSError as e:
         print(f"error ({e.code}): {e.message}", file=sys.stderr)
         if e.details:
@@ -205,6 +207,12 @@ def _dispatch(args) -> int:
         print(f"Loaded {n} memories/records from {args.file}")
         return 0
     if args.cmd in LLM_COMMANDS:
+        from aios.config import get_settings
+
+        if not get_settings().has_llm_credentials:
+            print("ANTHROPIC_API_KEY is not set. Put it in .env (git-ignored) and run again. "
+                  "Finance, memory, planning and the dashboard work without it.", file=sys.stderr)
+            return 2
         engine = _engine(sm)
         opts = {"importance": args.importance}
         if args.budget is not None:
@@ -405,7 +413,10 @@ def _print_finance(res: dict) -> None:
     for k in ("revenue", "other_inflows", "expenses", "net_cash_flow"):
         print(f"  {k:<16} {t[k]['display']:>14}")
     b = f["burn"]
-    print(f"  gross burn/mo    {b['gross_display']:>14}   net burn/mo {b['net_display']} (last {b.get('months_used', 0)} complete months)")
+    net = b.get("net_burn_monthly")
+    net_txt = (f"cash-flow positive, +{b['net_display'].lstrip('-')}/mo" if net is not None and net <= 0
+               else f"net burn/mo {b['net_display']}")
+    print(f"  gross burn/mo    {b['gross_display']:>14}   {net_txt} (last {b.get('months_used', 0)} complete months)")
     print(f"  cash             {f['cash']['display']:>14}   {f['cash'].get('note') or ''}")
     print(f"  runway (months)  {str(f['runway']['runway_months']):>14}   {f['runway'].get('note') or ''}")
     print(f"  recurring/mo     {f['recurring']['display']:>14}")

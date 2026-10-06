@@ -253,7 +253,7 @@ def on_approved(session: Session, approval: Approval, actor: Actor) -> dict:
     spec = imp.change_spec
     if not spec:
         imp.status = ImprovementStatus.APPROVED
-        return {"improvement_id": imp.id, "status": imp.status.value, "note": "Approved; this change is applied by a human."}
+        return {"improvement_id": imp.id, "improvement_status": imp.status.value, "note": "Approved; this change is applied by a human."}
     try:
         value = json.loads(spec["value"])
     except (json.JSONDecodeError, TypeError) as e:
@@ -266,13 +266,13 @@ def on_approved(session: Session, approval: Approval, actor: Actor) -> dict:
     sysconfig.set_value(session, key, new, FOUNDER, why=f"approved improvement {imp.id}: {imp.title}")
     imp.status = ImprovementStatus.IMPLEMENTED
     imp.test_results = {**(imp.test_results or {}), "applied": {"key": key, "old": old, "new": new, "at": utcnow().isoformat()}}
-    return {"improvement_id": imp.id, "status": imp.status.value, "applied": {"key": key, "old": old, "new": new}}
+    return {"improvement_id": imp.id, "improvement_status": imp.status.value, "applied": {"key": key, "old": old, "new": new}}
 
 
 def on_rejected(session: Session, approval: Approval, actor: Actor) -> dict:
     imp = session.get(Improvement, approval.payload["improvement_id"])
     imp.status = ImprovementStatus.REJECTED
-    return {"improvement_id": imp.id, "status": imp.status.value}
+    return {"improvement_id": imp.id, "improvement_status": imp.status.value}
 
 
 def rollback(session: Session, actor: Actor, improvement_id: str, why: str) -> dict:

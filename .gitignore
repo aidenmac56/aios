@@ -8,7 +8,7 @@ data/
 .pytest_cache/
 web/node_modules/
 web/dist/
-aios/web_dist/
+
 *.egg-info/
 build/
 dist/
