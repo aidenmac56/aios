@@ -25,7 +25,7 @@ def test_routing_rules(sm):
         assert router.choose(s, agent_id="risk", default_tier="DEEP", budget_remaining_ratio=0.1, floor_tier="DEEP").tier == "DEEP"
 
 
-def test_eval_history_moves_routing_to_cheaper_equivalent(sm):
+def test_eval_history_moves_routing_only_when_founder_opts_in(sm):
     with sm() as s:
         for i in range(3):
             s.add(Evaluation(agent_id="cfo", benchmark="cfo-v1", case_id=f"c{i}", model="claude-sonnet-5-5", scores={},
@@ -33,6 +33,8 @@ def test_eval_history_moves_routing_to_cheaper_equivalent(sm):
             s.add(Evaluation(agent_id="cfo", benchmark="cfo-v1", case_id=f"c{i}", model="claude-haiku-4-5-20251001",
                              scores={}, score=0.89, passed=True))
         s.flush()
+        assert router.choose(s, agent_id="cfo", default_tier="BALANCED").model == "claude-sonnet-5-5"  # default: off
+        sysconfig.set_value(s, "routing.auto_apply_eval_history", True, FOUNDER, "opt in")
         r = router.choose(s, agent_id="cfo", default_tier="BALANCED")
         assert r.model == "claude-haiku-4-5-20251001" and "eval history" in r.reason
         # a floor still wins over eval history

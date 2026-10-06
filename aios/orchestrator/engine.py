@@ -35,7 +35,7 @@ from aios.core.actor import agent as agent_actor
 from aios.core.budget import BudgetGuard, Limits
 from aios.core.errors import AIOSError, BudgetExceeded, InvalidPlan, NotFound, ValidationFailed
 from aios.core.util import micros_to_usd, utcnow
-from aios.db.enums import AuditVerdict, DecisionStatus, MemoryCategory, MemoryStatus, Provenance, RunStatus
+from aios.db.enums import AuditVerdict, DecisionStatus, ImprovementStatus, MemoryCategory, MemoryStatus, Provenance, RunStatus
 from aios.db.models import Audit, Decision, Memory, WorkflowRun
 from aios.llm.provider import ProviderRegistry
 from aios.modules import decisions, finance, improvements, memory, planning
@@ -58,6 +58,7 @@ class Engine:
             "decision": self.wf_decision, "research": self.wf_research, "market": self.wf_market,
             "cto": self.wf_cto, "finance": self.wf_finance, "plan": self.wf_plan, "priorities": self.wf_priorities,
             "audit": self.wf_audit, "improve": self.wf_improve, "learn": self.wf_learn,
+            "test": self.wf_test, "trends": self.wf_trends,
         }
 
     @property
@@ -561,6 +562,81 @@ class Engine:
             s.commit()
         out = await self.wf_audit(rc, request or "measurable improvements only", {**options, "scope": "improve"})
         out["measured_candidates"] = candidates
+        return out
+
+    async def wf_test(self, rc: RunCtx, request: str, options: dict) -> dict:
+        """TEST → COMPARE for one improvement: benchmark the current setup and the proposed one side by side."""
+        from aios.db.models import Experiment, Improvement
+        from aios.modules.evaluations import run_benchmark
+
+        imp_id = options.get("improvement_id")
+        with self.sm() as s:
+            imp = s.get(Improvement, imp_id) if imp_id else None
+            if imp is None:
+                raise NotFound(f"improvement {imp_id} not found")
+            if imp.status.value not in ("PROPOSED", "TESTED"):
+                raise ValidationFailed(f"improvement is {imp.status.value}; only PROPOSED or TESTED ones are tested")
+            plan = improvements.test_plan_for(s, imp)
+            exp = Experiment(hypothesis=imp.expected_impact, metric=imp.metric or "benchmark score and cost",
+                             variant_a=plan["baseline"], variant_b=plan["candidate"], status="RUNNING",
+                             improvement_id=imp.id, domain="SYSTEM")
+            s.add(exp)
+            imp.status = ImprovementStatus.TESTING
+            s.commit()
+            exp_id = exp.id
+        rc.progress(f"test: {plan['agent']} baseline {plan['baseline']} vs candidate {plan['candidate']}")
+        try:
+            base = await run_benchmark(self.sm, rc.providers, plan["agent"], plan["baseline"]["model"],
+                                       config_version=plan["baseline"]["config_version"], experiment_id=exp_id,
+                                       guard=rc.guard, workflow_run_id=rc.run_id)
+            rc.progress(f"baseline scored {base['avg_score']:.3f} (${base['total_cost_usd']:.4f})")
+            cand = await run_benchmark(self.sm, rc.providers, plan["agent"], plan["candidate"]["model"],
+                                       config_version=plan["candidate"]["config_version"], experiment_id=exp_id,
+                                       guard=rc.guard, workflow_run_id=rc.run_id)
+            rc.progress(f"candidate scored {cand['avg_score']:.3f} (${cand['total_cost_usd']:.4f})")
+        except Exception:
+            with self.sm() as s:  # leave the improvement testable again; the experiment records the failure
+                s.get(Improvement, imp_id).status = ImprovementStatus.PROPOSED
+                e = s.get(Experiment, exp_id)
+                e.status, e.conclusion = "FAILED", "Test did not finish (see the workflow run error)."
+                s.commit()
+            raise
+        with self.sm() as s:
+            out = improvements.record_test(s, s.get(Improvement, imp_id), plan, base, cand, exp_id)
+            s.commit()
+        return {"test": out}
+
+    async def wf_trends(self, rc: RunCtx, request: str, options: dict) -> dict:
+        """Trend intelligence: live research, then the CMO judges each trend on evidence, not popularity."""
+        from aios.agents.schemas import TrendReport
+
+        topic = request or "AI, software, and small-business technology"
+        context_text = self._context(topic, agent_id="cmo")
+        tasks = [
+            PlannedTask(key="signals", agent="research", complexity="high",
+                        objective=f"Find the most important current trends in: {topic}. For each: what changed, when, "
+                                  "measurable signals (adoption, spending, search, funding, regulation), and primary sources. "
+                                  "Separate economic evidence from social-media buzz."),
+            PlannedTask(key="trends", agent="cmo", depends_on=["signals"], complexity="medium",
+                        objective=f"Evaluate the trends found for: {topic}. Judge each on signal, evidence, trajectory, "
+                                  "market impact, relevance to this company, business opportunity, risks and confidence. "
+                                  "Mark trends that are mostly viral discussion without economic evidence."),
+        ]
+        results = await self.execute(rc, tasks, context_text, schema_for={"trends": TrendReport})
+        out: dict[str, Any] = {"agents": {k: {"agent": r.agent_id, "ok": r.ok, "error": r.error, "run_id": r.run_id}
+                                          for k, r in results.items()}}
+        if results["signals"].ok:
+            out["research"] = results["signals"].output
+        if not results["trends"].ok:
+            raise AIOSError(f"Trend evaluation failed: {results['trends'].error}")
+        report = results["trends"].output
+        research_live = bool((out.get("research") or {}).get("live_search_used"))
+        if not research_live:  # code-enforced: no live evidence, no high confidence
+            for t in report.get("trends", []):
+                if t.get("confidence") == "HIGH":
+                    t["confidence"] = "MEDIUM"
+            report["note"] = "Research had no live web search; confidence capped below HIGH."
+        out["trends"] = report
         return out
 
     async def wf_learn(self, rc: RunCtx, request: str, options: dict) -> dict:

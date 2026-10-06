@@ -167,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("runs")
     rp.add_argument("--id")
     sub.add_parser("verify-log", help="verify the audit log hash chain")
+    dr = sub.add_parser("doctor", help="check the installation; --live makes one tiny real model call + one search")
+    dr.add_argument("--live", action="store_true")
     sv = sub.add_parser("serve")
     sv.add_argument("--port", type=int)
     args = ap.parse_args(argv)
@@ -198,6 +200,17 @@ def _dispatch(args) -> int:
     if args.cmd == "init":
         print("Database ready. Agents synced.")
         return 0
+    if args.cmd == "doctor":
+        from aios import doctor
+
+        checks = doctor.run(sm, args.live)
+        for c in checks:
+            print(f"{'PASS' if c.ok else 'FAIL'}  {c.name:<38} {c.detail}")
+            if not c.ok and c.fix:
+                print(f"      → {c.fix}")
+        if not args.live:
+            print("\nRun `aios doctor --live` to make one tiny real model call and one web search (a few cents).")
+        return 0 if all(c.ok for c in checks) else 1
     if args.cmd == "seed":
         from aios.seed import load_seed
 

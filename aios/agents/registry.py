@@ -58,6 +58,32 @@ def active_config(session: Session, agent_id: str) -> ActiveConfig:
                         int((cfg.config or {}).get("max_tokens", spec.max_tokens)))
 
 
+def config_for_version(session: Session, agent_id: str, version: int) -> ActiveConfig:
+    """A specific (possibly inactive) version — used to benchmark a candidate before it goes live."""
+    spec = SPECS[agent_id]
+    cfg = session.execute(select(AgentConfigVersion).where(
+        AgentConfigVersion.agent_id == agent_id, AgentConfigVersion.version == version)).scalar_one_or_none()
+    if cfg is None:
+        from aios.core.errors import NotFound
+
+        raise NotFound(f"{agent_id} has no config version {version}")
+    return ActiveConfig(spec, version, cfg.system_prompt, (cfg.config or {}).get("tier"),
+                        int((cfg.config or {}).get("max_tokens", spec.max_tokens)))
+
+
+def versions(session: Session, agent_id: str) -> list[dict]:
+    row = session.get(Agent, agent_id)
+    active = row.active_config_version if row else 1
+    out = []
+    for v in session.execute(select(AgentConfigVersion).where(AgentConfigVersion.agent_id == agent_id)
+                             .order_by(AgentConfigVersion.version)).scalars():
+        out.append({"version": v.version, "active": v.version == active, "reason": v.reason,
+                    "expected_improvement": v.expected_improvement, "created_by": v.created_by,
+                    "created_at": v.created_at.isoformat(), "rollback_to_version": v.rollback_to_version,
+                    "test_results": v.test_results, "prompt_chars": len(v.system_prompt), "config": v.config})
+    return out
+
+
 def propose_version(session: Session, agent_id: str, *, system_prompt: str | None, config: dict | None,
                     reason: str, expected_improvement: str, created_by: str) -> AgentConfigVersion:
     """Store a candidate version. It does not become active until `activate_version` (founder only)."""
@@ -83,6 +109,7 @@ def activate_version(session: Session, agent_id: str, version: int, actor_str: s
         from aios.core.errors import PermissionDenied
 
         raise PermissionDenied("Only the founder can activate an agent configuration.")
+    config_for_version(session, agent_id, version)  # must exist
     row = session.get(Agent, agent_id)
     old = row.active_config_version
     row.active_config_version = version

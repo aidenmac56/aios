@@ -141,6 +141,34 @@ class GrowthFinding(AgentFinding):
     growth: GrowthPlan
 
 
+class Trend(BaseModel):
+    name: str
+    category: Literal["technology", "consumer", "business", "cultural", "economic", "startup", "AI", "software",
+                      "social_platforms", "regulatory"]
+    signal: str = Field(description="What measurably changed, and since when.")
+    evidence: list[Evidence] = Field(default_factory=list, max_length=6)
+    evidence_strength: Literal["STRONG", "MODERATE", "WEAK"]
+    mostly_viral_discussion: bool = Field(description="True when the evidence is mainly social-media attention, "
+                                                      "not adoption, spending, revenue or regulation.")
+    trajectory: Literal["EMERGING", "RISING", "PEAKING", "DECLINING", "UNCLEAR"]
+    market_impact: str = Field(description="Who it affects and roughly how much.")
+    relevance: Literal["HIGH", "MEDIUM", "LOW"]
+    relevance_why: str = Field(description="Why it matters (or not) for this company specifically.")
+    business_opportunity: str = Field(description="A concrete move this company could make. Empty if none.")
+    cost_to_test_usd: float = Field(ge=0)
+    risks: list[str] = Field(default_factory=list)
+    confidence: Conf
+
+
+class TrendReport(BaseModel):
+    summary: str = Field(description="The two or three trends that matter most for this company, and why.")
+    trends: list[Trend] = Field(default_factory=list, max_length=10)
+    ignore: list[str] = Field(default_factory=list, description="Popular topics deliberately ranked low, with the reason.")
+    experiments: list[GrowthExperiment] = Field(default_factory=list, max_length=5,
+                                                description="Cheap tests for the most relevant opportunities.")
+    stance: Stance = "NEUTRAL"
+
+
 class OpsFinding(AgentFinding):
     bottlenecks: list[str] = Field(default_factory=list)
     duplicated_work: list[str] = Field(default_factory=list)
@@ -375,9 +403,13 @@ class PrioritiesOutput(BaseModel):
 class ChangeSpec(BaseModel):
     """A change the system can apply itself once approved. Leave null for changes a human must make."""
 
-    type: Literal["routing_override", "budget", "config"]
-    key: str = Field(description="Config key, e.g. 'routing.agent_tier_overrides' or 'budget.workflow_limit_usd'.")
-    value: str = Field(description="New value as JSON text.")
+    type: Literal["routing_override", "budget", "config", "prompt_addendum"] = Field(
+        description="routing_override/budget/config change a configuration key. prompt_addendum appends guidance to "
+                    "one agent's prompt as a new, versioned configuration that can be benchmarked and rolled back.")
+    key: str = Field(description="For config types: the config key, e.g. 'routing.agent_tier_overrides' or "
+                                 "'budget.workflow_limit_usd'. For prompt_addendum: the agent id, e.g. 'research'.")
+    value: str = Field(description="For config types: the new value as JSON text, e.g. '{\"analytics\": \"FAST\"}'. "
+                                   "For prompt_addendum: the exact guidance text to add (plain text, under 1,500 characters).")
 
 
 class ImprovementOut(BaseModel):

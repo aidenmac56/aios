@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from aios.agents import registry
 from aios.agents.schemas import ExecutiveBrief, FinanceFinding, PlanOutput, ResearchFinding, TechFinding
 from aios.core.budget import BudgetGuard, Limits
-from aios.core.errors import AIOSError, InvalidPlan
+from aios.core.errors import AIOSError, BudgetExceeded, InvalidPlan, MissingCredentials
 from aios.db.models import Evaluation
 from aios.llm import calls
 from aios.llm.calls import CallContext
@@ -127,32 +127,45 @@ BENCHMARKS: dict[str, Benchmark] = {
 
 
 async def run_benchmark(sm: sessionmaker, providers: ProviderRegistry, agent_id: str, model: str,
-                        case_ids: list[str] | None = None) -> dict:
+                        case_ids: list[str] | None = None, *, config_version: int | None = None,
+                        experiment_id: str | None = None, guard: BudgetGuard | None = None,
+                        workflow_run_id: str | None = None) -> dict:
+    """Score `agent_id` on its benchmark with `model` and a prompt version (default: the active one).
+
+    A budget stop or missing credentials aborts the run instead of being recorded as a zero score,
+    so infrastructure problems never pollute the evaluation history that routing relies on.
+    """
     if agent_id not in BENCHMARKS:
         raise AIOSError(f"No benchmark for {agent_id}. Available: {', '.join(BENCHMARKS)}")
     bm = BENCHMARKS[agent_id]
     with sm() as s:
-        cfg = registry.active_config(s, agent_id)
-        guard = BudgetGuard(sm, Limits.load(s))
+        cfg = registry.config_for_version(s, agent_id, config_version) if config_version else registry.active_config(s, agent_id)
+        guard = guard or BudgetGuard(sm, Limits.load(s))
     results = []
     for case in bm.cases:
         if case_ids and case.id not in case_ids:
             continue
-        ctx = CallContext(sm=sm, providers=providers, budget=guard, workflow="eval", agent_id=agent_id, tier="EVAL")
+        ctx = CallContext(sm=sm, providers=providers, budget=guard, workflow="eval", agent_id=agent_id, tier="EVAL",
+                          workflow_run_id=workflow_run_id, task_key=f"eval:{case.id}:{model}:{cfg.version}")
         start = time.monotonic()
         try:
             out = await calls.structured(ctx, model=model, system=cfg.system_prompt, prompt=case.prompt, schema=bm.schema,
                                          purpose="eval", max_tokens=cfg.max_tokens)
             scores = bm.scorer(out, case)
             err = None
-        except AIOSError as e:
+        except (BudgetExceeded, MissingCredentials):
+            raise
+        except AIOSError as e:  # the model failed the case (e.g. invalid output twice): a real zero
             scores, err = {"completed": 0.0}, e.message
         total = _avg(scores)
         with sm() as s:
             s.add(Evaluation(agent_id=agent_id, benchmark=bm.name, case_id=case.id, model=model,
                              config_version=cfg.version, scores=scores, score=total, passed=total >= 0.75,
-                             cost_micros=ctx.spent_micros, latency_ms=int((time.monotonic() - start) * 1000), notes=err))
+                             cost_micros=ctx.spent_micros, latency_ms=int((time.monotonic() - start) * 1000), notes=err,
+                             experiment_id=experiment_id))
             s.commit()
         results.append({"case": case.id, "score": total, "scores": scores, "cost_usd": ctx.spent_micros / 1e6, "error": err})
     avg = round(sum(r["score"] for r in results) / len(results), 4) if results else 0
-    return {"agent": agent_id, "model": model, "benchmark": bm.name, "avg_score": avg, "cases": results}
+    cost = round(sum(r["cost_usd"] for r in results), 6)
+    return {"agent": agent_id, "model": model, "config_version": cfg.version, "benchmark": bm.name, "avg_score": avg,
+            "total_cost_usd": cost, "cases": results}

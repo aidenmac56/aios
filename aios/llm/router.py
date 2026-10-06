@@ -29,9 +29,18 @@ def _shift(tier: str, by: int) -> str:
 
 
 def eval_scores(session: Session, agent_id: str, min_cases: int) -> dict[str, float]:
+    """Average benchmark score per model, for the agent's ACTIVE prompt version only.
+
+    Scores from other versions (old prompts, untested candidates) say nothing about how the live
+    configuration performs, so they never steer routing.
+    """
+    from aios.db.models import Agent
+
+    row = session.get(Agent, agent_id)
+    version = row.active_config_version if row else 1
     rows = session.execute(
         select(Evaluation.model, func.avg(Evaluation.score), func.count())
-        .where(Evaluation.agent_id == agent_id)
+        .where(Evaluation.agent_id == agent_id, Evaluation.config_version == version)
         .group_by(Evaluation.model)
     ).all()
     return {m: float(avg) for m, avg, n in rows if n >= min_cases}
@@ -76,9 +85,11 @@ def choose(
 
     model = models[tier]
 
-    # Evaluation history: if a cheaper model is as good on this agent's benchmark, use it.
+    # Evaluation history: if a cheaper model is as good on this agent's benchmark, use it — only when the founder
+    # has opted in. Otherwise eval results reach routing through improvements he tests and approves.
     margin = float(sysconfig.get(session, "routing.equivalence_margin"))
-    scores = eval_scores(session, agent_id, int(sysconfig.get(session, "routing.min_eval_cases")))
+    auto = bool(sysconfig.get(session, "routing.auto_apply_eval_history"))
+    scores = eval_scores(session, agent_id, int(sysconfig.get(session, "routing.min_eval_cases"))) if auto else {}
     if model in scores and agent_id not in overrides:
         chosen_price = price_for(model)
         best = model

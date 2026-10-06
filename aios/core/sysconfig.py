@@ -30,6 +30,9 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
     "routing.agent_tier_overrides": ({}, "Force a tier for an agent, e.g. {\"research\": \"BALANCED\"}."),
     "routing.equivalence_margin": (0.03, "If a cheaper model's eval score is within this margin, prefer it."),
     "routing.min_eval_cases": (3, "Evaluations needed before eval history can change routing."),
+    "routing.auto_apply_eval_history": (False, "If true, routing switches to a cheaper model as soon as benchmarks show "
+                                               "it is equivalent. If false (default), that becomes an improvement you "
+                                               "test and approve."),
     "routing.downgrade_when_budget_below": (0.25, "Downgrade one tier when this share of the workflow budget remains."),
     "orchestrator.max_tasks_per_workflow": (8, "Upper bound on agent tasks in one plan."),
     "orchestrator.max_parallel": (4, "Max agent tasks running at once."),

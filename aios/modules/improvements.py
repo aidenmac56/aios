@@ -103,9 +103,12 @@ def observations(session: Session) -> dict:
     txn_total = session.execute(select(func.count()).select_from(Transaction)).scalar() or 0
     uncategorized = session.execute(select(func.count()).select_from(Transaction).where(
         Transaction.category.like("uncategorized%"))).scalar() or 0
-    evals = [{"agent": a, "model": m, "avg_score": round(float(s), 3), "cases": n}
-             for a, m, s, n in session.execute(select(Evaluation.agent_id, Evaluation.model, func.avg(Evaluation.score),
-                                                      func.count()).group_by(Evaluation.agent_id, Evaluation.model)).all()]
+    active_versions = dict(session.execute(select(Agent.id, Agent.active_config_version)).all())
+    evals = [{"agent": a, "model": m, "config_version": v, "active_version": active_versions.get(a) == v,
+              "avg_score": round(float(s), 3), "cases": n}
+             for a, m, v, s, n in session.execute(
+                 select(Evaluation.agent_id, Evaluation.model, Evaluation.config_version, func.avg(Evaluation.score),
+                        func.count()).group_by(Evaluation.agent_id, Evaluation.model, Evaluation.config_version)).all()]
     pending = session.execute(select(Approval).where(Approval.status == ApprovalStatus.PENDING)).scalars().all()
     prompts = {a: {"version": v, "chars": len(p)} for a, v, p in session.execute(
         select(AgentConfigVersion.agent_id, AgentConfigVersion.version, AgentConfigVersion.system_prompt)
@@ -192,7 +195,7 @@ def measured_candidates(session: Session) -> list[dict]:
     min_cases = int(sysconfig.get(session, "routing.min_eval_cases"))
     by_agent: dict[str, list[dict]] = {}
     for e in obs["evaluations"]:
-        if e["cases"] >= min_cases:
+        if e["cases"] >= min_cases and e["active_version"]:
             by_agent.setdefault(e["agent"], []).append(e)
     models = sysconfig.get(session, "routing.models")
     tier_of = {m: t for t, m in models.items()}
@@ -247,6 +250,48 @@ def request_implementation(session: Session, actor: Actor, improvement_id: str) 
                              risks=[imp.risk], handler="improvement.implement", payload={"improvement_id": imp.id})
 
 
+MAX_ADDENDUM = 1500
+
+
+def _addendum_text(spec: dict) -> str:
+    raw = spec.get("value") or ""
+    try:
+        parsed = json.loads(raw)
+        text = parsed if isinstance(parsed, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        text = raw
+    text = text.strip()
+    if not text:
+        raise ValidationFailed("prompt_addendum has no text.")
+    if len(text) > MAX_ADDENDUM:
+        raise ValidationFailed(f"prompt_addendum is {len(text)} characters; the limit is {MAX_ADDENDUM}.")
+    return text
+
+
+def ensure_candidate_version(session: Session, imp: Improvement) -> int:
+    """Create (once) the inactive agent config version a prompt_addendum improvement describes."""
+    from aios.agents import registry
+    from aios.agents.specs import SPECS
+
+    spec = imp.change_spec or {}
+    agent_id = spec.get("key")
+    if agent_id not in SPECS:
+        raise ValidationFailed(f"prompt_addendum targets unknown agent '{agent_id}'.")
+    existing = (imp.test_results or {}).get("candidate_version")
+    if existing:
+        return int(existing)
+    current = registry.active_config(session, agent_id)
+    text = _addendum_text(spec)
+    v = registry.propose_version(
+        session, agent_id,
+        system_prompt=f"{current.system_prompt}\n\nADDITIONAL GUIDANCE (from improvement {imp.id[:8]}):\n{text}",
+        config=None, reason=f"improvement {imp.id}: {imp.title}", expected_improvement=imp.expected_impact,
+        created_by=imp.proposed_by)
+    imp.test_results = {**(imp.test_results or {}), "candidate_version": v.version, "baseline_version": current.version}
+    session.flush()
+    return v.version
+
+
 def on_approved(session: Session, approval: Approval, actor: Actor) -> dict:
     imp = session.get(Improvement, approval.payload["improvement_id"])
     imp.approval_id = approval.id
@@ -254,6 +299,20 @@ def on_approved(session: Session, approval: Approval, actor: Actor) -> dict:
     if not spec:
         imp.status = ImprovementStatus.APPROVED
         return {"improvement_id": imp.id, "improvement_status": imp.status.value, "note": "Approved; this change is applied by a human."}
+    if spec.get("type") == "prompt_addendum":
+        from aios.agents import registry
+        from aios.db.models import Agent as AgentRow
+
+        agent_id = spec["key"]
+        old_version = session.get(AgentRow, agent_id).active_config_version
+        new_version = ensure_candidate_version(session, imp)
+        registry.activate_version(session, agent_id, new_version, str(actor), approval.id,
+                                  why=f"approved improvement {imp.id}: {imp.title}")
+        applied = {"type": "prompt", "agent": agent_id, "old_version": old_version, "new_version": new_version,
+                   "at": utcnow().isoformat()}
+        imp.status = ImprovementStatus.IMPLEMENTED
+        imp.test_results = {**(imp.test_results or {}), "applied": applied}
+        return {"improvement_id": imp.id, "improvement_status": imp.status.value, "applied": applied}
     try:
         value = json.loads(spec["value"])
     except (json.JSONDecodeError, TypeError) as e:
@@ -282,9 +341,92 @@ def rollback(session: Session, actor: Actor, improvement_id: str, why: str) -> d
     applied = (imp.test_results or {}).get("applied") if imp else None
     if not applied:
         raise ValidationFailed("Nothing applied to roll back.")
+    if imp.status == ImprovementStatus.ROLLED_BACK:
+        raise ValidationFailed("Already rolled back.")
+    if applied.get("type") == "prompt":
+        from aios.agents import registry
+
+        registry.activate_version(session, applied["agent"], applied["old_version"], str(actor), None,
+                                  why=f"rollback {imp.id}: {why}")
+        imp.status = ImprovementStatus.ROLLED_BACK
+        return {"improvement_id": imp.id, "restored": {"agent": applied["agent"], "version": applied["old_version"]}}
     sysconfig.set_value(session, applied["key"], applied["old"], actor, why=f"rollback {imp.id}: {why}")
     imp.status = ImprovementStatus.ROLLED_BACK
     return {"improvement_id": imp.id, "restored": {"key": applied["key"], "value": applied["old"]}}
+
+
+def test_plan_for(session: Session, imp: Improvement) -> dict:
+    """What an automated A/B test of this improvement compares. Raises if it cannot be tested automatically."""
+    from aios.agents.specs import SPECS
+    from aios.llm import router
+    from aios.modules.evaluations import BENCHMARKS
+
+    spec = imp.change_spec or {}
+    kind = spec.get("type")
+    if kind == "prompt_addendum":
+        agent_id = spec.get("key")
+        if agent_id not in BENCHMARKS:
+            raise ValidationFailed(f"No benchmark for '{agent_id}' yet, so this change can only be reviewed by hand.")
+        from aios.agents import registry
+
+        cfg = registry.active_config(session, agent_id)
+        model = router.choose(session, agent_id=agent_id, default_tier=cfg.tier_override or SPECS[agent_id].default_tier).model
+        candidate = ensure_candidate_version(session, imp)
+        return {"agent": agent_id, "baseline": {"model": model, "config_version": cfg.version},
+                "candidate": {"model": model, "config_version": candidate}}
+    if kind == "routing_override":
+        try:
+            value = json.loads(spec.get("value") or "")
+        except json.JSONDecodeError as e:
+            raise ValidationFailed(f"change_spec value is not valid JSON: {e}")
+        if not isinstance(value, dict) or len(value) != 1:
+            raise ValidationFailed("A testable routing_override changes exactly one agent, e.g. {\"cfo\": \"FAST\"}.")
+        agent_id, tier = next(iter(value.items()))
+        if agent_id not in BENCHMARKS:
+            raise ValidationFailed(f"No benchmark for '{agent_id}' yet, so this change can only be reviewed by hand.")
+        models = sysconfig.get(session, "routing.models")
+        if tier not in models:
+            raise ValidationFailed(f"Unknown tier '{tier}'.")
+        from aios.agents import registry
+
+        cfg = registry.active_config(session, agent_id)
+        current = router.choose(session, agent_id=agent_id, default_tier=cfg.tier_override or SPECS[agent_id].default_tier)
+        return {"agent": agent_id, "baseline": {"model": current.model, "config_version": cfg.version},
+                "candidate": {"model": models[tier], "config_version": cfg.version}}
+    raise ValidationFailed("Only routing and prompt changes have an automated benchmark test; review the test plan by hand.")
+
+
+def record_test(session: Session, imp: Improvement, plan: dict, baseline: dict, candidate: dict,
+                experiment_id: str) -> dict:
+    """COMPARE: equal-or-better quality (within the routing margin) and the cost difference decide the verdict."""
+    from aios.db.models import Experiment
+
+    margin = float(sysconfig.get(session, "routing.equivalence_margin"))
+    delta = round(candidate["avg_score"] - baseline["avg_score"], 4)
+    cost_delta = round(candidate["total_cost_usd"] - baseline["total_cost_usd"], 6)
+    if delta > margin:
+        verdict = "BETTER"
+    elif delta >= -margin:
+        verdict = "EQUIVALENT"
+    else:
+        verdict = "WORSE"
+    conclusion = (f"Candidate scored {candidate['avg_score']:.3f} vs baseline {baseline['avg_score']:.3f} "
+                  f"({delta:+.3f}; margin ±{margin}) at {cost_delta:+.4f} USD for the benchmark. Verdict: {verdict}.")
+    exp = session.get(Experiment, experiment_id)
+    exp.results = {"baseline": baseline, "candidate": candidate, "score_delta": delta, "cost_delta_usd": cost_delta,
+                   "verdict": verdict}
+    exp.status = "COMPLETED"
+    exp.conclusion = conclusion
+    imp.status = ImprovementStatus.TESTED
+    imp.test_results = {**(imp.test_results or {}), "experiment_id": exp.id, "verdict": verdict,
+                        "score_delta": delta, "cost_delta_usd": cost_delta,
+                        "baseline": {k: baseline[k] for k in ("model", "config_version", "avg_score", "total_cost_usd")},
+                        "candidate": {k: candidate[k] for k in ("model", "config_version", "avg_score", "total_cost_usd")},
+                        "tested_at": utcnow().isoformat()}
+    audit.record(session, who="system", what="improvement.tested", why=imp.title, output=imp.test_results,
+                 target_type="improvement", target_id=imp.id)
+    return {"improvement_id": imp.id, "experiment_id": exp.id, "verdict": verdict, "conclusion": conclusion,
+            "baseline": baseline, "candidate": candidate}
 
 
 def verify(session: Session, actor: Actor, improvement_id: str, *, result: str, success: bool) -> dict:
