@@ -151,14 +151,19 @@ def output_schema(model_cls: type[BaseModel]) -> dict:
     """
     schema = _inline_refs(model_cls.model_json_schema())
 
-    def walk(node):
+    def walk(node, is_properties: bool = False):
         if isinstance(node, list):
             return [walk(x) for x in node]
         if not isinstance(node, dict):
             return node
+        if is_properties:  # keys here are field NAMES (a field may be called "title"); never filter them
+            return {name: walk(sub) for name, sub in node.items()}
         out = {}
         notes = []
         for k, v in node.items():
+            if k == "properties":
+                out[k] = walk(v, is_properties=True)
+                continue
             if k in _NUMERIC:
                 notes.append(f"{_NUMERIC[k]} {v}")
             elif k in ("minItems",) and isinstance(v, int) and v > 1:

@@ -183,3 +183,32 @@ async def test_unscoped_key_error_explains_the_fix(monkeypatch):
 def test_workspace_header_is_sent_when_configured():
     p = AnthropicProvider("sk-ant-test-key-not-real", "wrkspc_123")
     assert p.client.default_headers.get("anthropic-workspace-id") == "wrkspc_123"
+
+
+@pytest.mark.parametrize("schema", ALL_SCHEMAS, ids=lambda s: s.__name__)
+def test_output_schema_keeps_every_field(schema):
+    """Regression: sanitizing must never drop a real field (e.g. one named 'title')."""
+    original = schema.model_json_schema()
+    sent = tool_schema(schema)
+
+    def props(sch, defs):
+        if "$ref" in sch:
+            sch = defs[sch["$ref"].split("/")[-1]]
+        return sch
+
+    def compare(orig, new, defs):
+        orig = props(orig, defs)
+        if "properties" in orig:
+            assert set(orig["properties"]) == set(new["properties"]), (set(orig["properties"]) ^ set(new["properties"]))
+            assert set(orig.get("required", [])) == set(new.get("required", []))
+            for k in orig["properties"]:
+                compare(orig["properties"][k], new["properties"][k], defs)
+        for key in ("items",):
+            if key in orig:
+                compare(orig[key], new[key], defs)
+        for key in ("anyOf",):
+            if key in orig:
+                for a, b in zip(orig[key], new[key]):
+                    compare(a, b, defs)
+
+    compare(original, sent, original.get("$defs", {}))
