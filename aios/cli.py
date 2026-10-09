@@ -222,6 +222,14 @@ def main(argv: list[str] | None = None) -> int:
         p_.add_argument("--file", help="read the script from a file")
         p_.add_argument("--from-run", help="use a draft from `aios draft` (run id)")
         p_.add_argument("--item", type=int, help="which draft item (1-based)")
+    td = sub.add_parser("todo", help="your to-do list: things only you can do outside the system")
+    td.add_argument("action", choices=["list", "add", "done", "undo"], nargs="?", default="list")
+    td.add_argument("text", nargs="?", help="add: what to do; done/undo: the to-do id (prefix is fine)")
+    td.add_argument("--priority", type=int, choices=[1, 2, 3, 4, 5], default=2)
+    td.add_argument("--due", help="YYYY-MM-DD")
+    mb = sub.add_parser("menubar", help="Mac menu bar to-do list (top-right corner)")
+    mb.add_argument("--install", action="store_true", help="also start it when you log in")
+    mb.add_argument("--uninstall", action="store_true", help="stop starting it at login")
     md = sub.add_parser("media", help="list voice/face references and generated media")
     md.add_argument("action", choices=["list"], nargs="?", default="list")
     dr = sub.add_parser("doctor", help="check the installation; --live makes one tiny real model call + one search")
@@ -267,6 +275,20 @@ def _dispatch(args) -> int:
     sm = init()
     if args.cmd in ("voice", "avatar", "video", "media"):
         return _studio(sm, args)
+    if args.cmd == "todo":
+        return _todo(sm, args)
+    if args.cmd == "menubar":
+        from aios import menubar
+
+        if args.uninstall:
+            menubar.uninstall()
+            print("The menu bar app will no longer start at login.")
+            return 0
+        if args.install:
+            print(f"Installed {menubar.install()}: the to-do list starts at login and is starting now (top-right).")
+            return 0
+        menubar.run()
+        return 0
     if args.cmd == "init":
         print("Database ready. Agents synced.")
         return 0
@@ -530,6 +552,40 @@ def _dispatch(args) -> int:
             from aios.core.audit import verify_chain
 
             _p(verify_chain(s))
+    return 0
+
+
+def _todo(sm, args) -> int:
+    from datetime import date
+
+    from aios.modules import todos
+
+    with sm() as s:
+        if args.action == "add":
+            if not args.text:
+                raise AIOSError('Say what to do: aios todo add "Record a 30-second voice clip"')
+            t = todos.add(s, FOUNDER, args.text, priority=args.priority,
+                          due=date.fromisoformat(args.due) if args.due else None)
+            s.commit()
+            print(f"Added [{t.id[:8]}] {t.title}")
+            return 0
+        if args.action in ("done", "undo"):
+            tid = _resolve_id(s, "tasks", args.text)
+            t = (todos.complete if args.action == "done" else todos.reopen)(s, FOUNDER, tid)
+            s.commit()
+            print(f"{'Done' if args.action == 'done' else 'Reopened'}: {t.title}")
+            return 0
+        rows, done = todos.open_todos(s), todos.recently_done(s)
+    if args.json:
+        _p({"open": rows, "done_today": done})
+        return 0
+    if not rows:
+        print("Nothing on your list.")
+    for t in rows:
+        flag = " (waiting)" if t["waiting"] else (" (overdue)" if t["due_date"] and t["due_date"] < date.today().isoformat() else "")
+        print(f"[ ] {t['id'][:8]}  P{t['priority']}  {t['title']}" + (f"  · {t['project']}" if t["project"] else "") + flag)
+    for t in done:
+        print(f"[x] {t['id'][:8]}  {t['title']}")
     return 0
 
 

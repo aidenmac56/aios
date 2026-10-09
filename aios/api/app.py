@@ -378,6 +378,38 @@ def list_tasks(s=Depends(_session)):
     return planning.priority_scores(s)
 
 
+class TodoIn(BaseModel):
+    title: str
+    priority: int = 2
+
+
+@app.get("/api/todos", dependencies=[api])
+def list_todos(s=Depends(_session)):
+    from aios.modules import todos
+
+    return {"open": todos.open_todos(s), "done_today": todos.recently_done(s)}
+
+
+@app.post("/api/todos", dependencies=[api])
+def add_todo(body: TodoIn, s=Depends(_session)):
+    from aios.modules import todos
+
+    t = todos.add(s, FOUNDER, body.title, priority=body.priority)
+    s.commit()
+    return _task_row(t)
+
+
+@app.post("/api/todos/{task_id}/{action}", dependencies=[api])
+def todo_action(task_id: str, action: str, s=Depends(_session)):
+    from aios.modules import todos
+
+    if action not in ("done", "undo"):
+        raise HTTPException(404, "action must be done or undo")
+    t = (todos.complete if action == "done" else todos.reopen)(s, FOUNDER, task_id)
+    s.commit()
+    return _task_row(t)
+
+
 # ------------------------------------------------------------------ research
 
 

@@ -47,6 +47,21 @@ metrics, the dashboard, memory, planning and audit logs all work without a key; 
 
 The same commands exist as Claude Code slash commands in `.claude/commands/` (`/ceo`, `/board`, `/research`, ...).
 
+## Your to-do list (Mac menu bar)
+
+Things only you can do, outside the system: tasks plans assign to you (`founder`) plus anything you add.
+
+```bash
+pip install rumps                 # once
+aios menubar --install            # shows ☐ N in the top-right; starts at login
+aios todo add "Record a 30-second voice clip" --priority 1
+aios todo                         # same list in the terminal;  aios todo done <id>
+```
+
+Click an item to check it off. That completes the task in AIOS (criteria met, event, audit log) and
+unlocks anything that was waiting on it, so `priorities`, `status` and the agents see it as done.
+Click a checked item to undo. The list re-reads the database every 20 seconds; it never runs agents.
+
 ## Studio: your voice and face (replaces ElevenLabs + HeyGen)
 
 Open-source models instead of subscriptions:
