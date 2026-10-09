@@ -228,8 +228,10 @@ def main(argv: list[str] | None = None) -> int:
     td.add_argument("--priority", type=int, choices=[1, 2, 3, 4, 5], default=2)
     td.add_argument("--due", help="YYYY-MM-DD")
     wk = sub.add_parser("work", help="the system's own task queue: list it or run the ready tasks now")
-    wk.add_argument("action", choices=["list", "run", "reopen"], nargs="?", default="list")
-    wk.add_argument("task_id", nargs="?")
+    wk.add_argument("action", choices=["list", "run", "reopen", "add", "assign"], nargs="?", default="list")
+    wk.add_argument("task_id", nargs="?", help="reopen/assign: task id; add: what the system should do")
+    wk.add_argument("--agent", default="cmo", help="add/assign: agent id, or 'founder' to move a task to your list")
+    wk.add_argument("--priority", type=int, choices=[1, 2, 3, 4, 5], default=2)
     wk.add_argument("--max", type=int, default=3, help="run: at most this many tasks")
     wk.add_argument("--budget", type=float, help="run: budget per task in USD")
     wk.add_argument("--why", default="output not good enough")
@@ -566,6 +568,18 @@ def _dispatch(args) -> int:
 def _work(sm, args) -> int:
     from aios.modules import workqueue
 
+    if args.action == "add":
+        with sm() as s:
+            t = workqueue.add(s, args.task_id or "", agent=args.agent, priority=args.priority)
+            s.commit()
+            print(f"Queued for the system [{t.id[:8]}] ({t.responsible_agent}): {t.title}")
+        return 0
+    if args.action == "assign":
+        with sm() as s:
+            t = workqueue.assign(s, _resolve_id(s, "tasks", args.task_id), args.agent)
+            s.commit()
+            print(f"{t.title} → {'your list' if args.agent == 'founder' else 'the system (' + args.agent + ')'}")
+        return 0
     if args.action == "reopen":
         with sm() as s:
             t = workqueue.reopen(s, _resolve_id(s, "tasks", args.task_id), args.why)

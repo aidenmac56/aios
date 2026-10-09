@@ -138,3 +138,35 @@ async def run_ready(sm: sessionmaker, engine, *, max_tasks: int = 3, budget_usd:
         if res.get("stopped") == "budget":
             break
     return results
+
+
+def add(session: Session, title: str, *, agent: str = "cmo", priority: int = 2, note: str | None = None) -> Task:
+    """The founder hands the system a task."""
+    from aios.agents.specs import SPECS
+    from aios.core.errors import ValidationFailed
+
+    if agent not in SPECS:
+        raise ValidationFailed(f"Unknown agent '{agent}'. Known: {', '.join(SPECS)}")
+    t = Task(kind=TaskKind.PLAN, title=title.strip()[:400], description=note, responsible_agent=agent, creator="founder",
+             priority=priority, status=TaskStatus.READY, completion_criteria="The workflow run completed with output.")
+    session.add(t)
+    session.flush()
+    audit.record(session, who="founder", what="work.add", input={"title": t.title, "agent": agent},
+                 target_type="task", target_id=t.id)
+    return t
+
+
+def assign(session: Session, task_id: str, agent: str) -> Task:
+    """Move a task between the founder's list and the system's ("founder" or an agent id)."""
+    from aios.agents.specs import SPECS
+    from aios.core.errors import ValidationFailed
+
+    if agent != "founder" and agent not in SPECS:
+        raise ValidationFailed(f"Unknown agent '{agent}'. Known: founder, {', '.join(SPECS)}")
+    t = session.get(Task, task_id)
+    if t is None or t.kind != TaskKind.PLAN:
+        raise NotFound(f"No task {task_id}")
+    old, t.responsible_agent = t.responsible_agent, agent
+    audit.record(session, who="founder", what="task.assign", input={"from": old, "to": agent},
+                 target_type="task", target_id=t.id)
+    return t

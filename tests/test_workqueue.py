@@ -56,3 +56,16 @@ async def test_nothing_runs_without_a_call(sm):
         s.commit()
         assert s.execute(select(WorkflowRun)).scalars().all() == []
         assert s.get(Task, write.id).status == TaskStatus.READY
+
+
+def test_founder_can_hand_tasks_to_the_system_and_back(sm):
+    with sm() as s:
+        _, _, mine = _setup(s)
+        t = workqueue.add(s, "Write 5 hooks for video 1", agent="cmo")
+        workqueue.assign(s, mine.id, "research")
+        s.commit()
+        ids = [x["id"] for x in workqueue.queue(s)]
+        assert t.id in ids and mine.id in ids
+        workqueue.assign(s, mine.id, "founder")
+        s.commit()
+        assert mine.id in [x["id"] for x in todos.open_todos(s)]
