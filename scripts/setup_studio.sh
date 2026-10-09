@@ -4,7 +4,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-command -v ffmpeg >/dev/null || { echo "Installing ffmpeg…"; brew install ffmpeg; }
+if ! command -v ffmpeg >/dev/null; then
+  echo "Installing ffmpeg…"
+  if command -v brew >/dev/null; then brew install ffmpeg
+  elif command -v conda >/dev/null; then conda install -y -c conda-forge ffmpeg
+  else echo "Install Homebrew (https://brew.sh) then run: brew install ffmpeg"; exit 1; fi
+fi
 
 if [ ! -x .venv-tts/bin/python ]; then
   if command -v conda >/dev/null; then
