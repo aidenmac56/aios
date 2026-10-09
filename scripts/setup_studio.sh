@@ -6,8 +6,9 @@ cd "$(dirname "$0")/.."
 
 if ! command -v ffmpeg >/dev/null; then
   echo "Installing ffmpeg…"
-  if command -v brew >/dev/null; then brew install ffmpeg
-  elif command -v conda >/dev/null; then conda install -y -c conda-forge ffmpeg
+  # conda first: prebuilt binaries. A Homebrew outside /opt/homebrew compiles from source and often fails.
+  if command -v conda >/dev/null; then conda install -y -c conda-forge ffmpeg
+  elif command -v brew >/dev/null; then brew install ffmpeg
   else echo "Install Homebrew (https://brew.sh) then run: brew install ffmpeg"; exit 1; fi
 fi
 
