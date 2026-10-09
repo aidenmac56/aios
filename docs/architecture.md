@@ -246,3 +246,15 @@ separate interpreter (`AIOS_TTS_PYTHON`, `aios/media/chatterbox_worker.py`, whic
 aios). Lip-sync runs on Replicate (`aios/integrations/replicate.py`): budget-checked against the daily
 limit before the call, measured GPU seconds × `media.lipsync_usd_per_second` recorded in `model_usage`
 (provider `replicate`, workflow `studio`). Outputs are DRAFT and `synthetic=True`; nothing publishes.
+
+
+## Multi-model orchestration
+
+Providers sit behind `LLMProvider`; `ProviderRegistry.for_model` resolves by model-id prefix (`claude`,
+`muse-`, `gpt-`, `ollama/`, `shortcut:`). OpenAI-compatible HTTP covers Meta Model API (Muse), OpenAI and
+Ollama; `ShortcutsProvider` runs founder-allowlisted macOS shortcuts (`mac.allowed_shortcuts`, founder-only
+config). Jev (TypeSafe) is not a text provider: `aios/llm/jev.py` answers typed routing questions.
+`orchestrator/multi.py`: plan (founder list > Jev > keyword rules; `multi.routes` per task type, filtered to
+connected models) → parallel calls with per-model timeout → direct answer or structured synthesis by
+`multi.synthesizer`. All calls go through `calls._complete`, so budgets, retries and `model_usage` apply
+to every provider. Only the task text is sent. `routing.agent_model_overrides` pins an agent to a model.

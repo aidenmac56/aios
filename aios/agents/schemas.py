@@ -450,3 +450,20 @@ class AuditReview(BaseModel):
     summary: str
     findings: list[str] = Field(default_factory=list)
     proposals: list[ImprovementOut] = Field(default_factory=list, max_length=8)
+
+
+class ModelContribution(BaseModel):
+    model: str
+    contribution: str = Field(description="What this model's answer added, or why it was set aside. One sentence.")
+
+
+class MultiSynthesis(BaseModel):
+    """One answer reconciled from several models' answers to the same task."""
+
+    answer: str = Field(description="The single best answer for the founder, in his voice: brief, plain, direct.")
+    agreements: list[str] = Field(default_factory=list, description="Points the models agreed on (at most 5).")
+    disagreements: list[str] = Field(default_factory=list,
+                                     description="Where they differed and which side you took and why (at most 5).")
+    contributions: list[ModelContribution] = Field(default_factory=list)
+    confidence: Conf
+    caveats: list[str] = Field(default_factory=list, description="Anything unverified or that needs checking (at most 4).")

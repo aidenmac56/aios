@@ -30,6 +30,10 @@ class Settings(BaseModel):
     anthropic_api_key: str | None = None
     anthropic_workspace_id: str | None = None  # only for organization-level keys not scoped to a workspace
     api_token: str | None = None  # optional bearer token for the local API
+    openai_api_key: str | None = None  # ChatGPT models via the OpenAI API (paid)
+    muse_api_key: str | None = None  # Meta Model API (Muse Spark); MODEL_API_KEY or MUSE_API_KEY
+    typesafe_api_key: str | None = None  # Jev (routing decisions)
+    ollama_url: str | None = None  # local models; default http://127.0.0.1:11434/v1 when AIOS_OLLAMA=1
     replicate_api_token: str | None = None  # studio: cloud GPU for avatar lip-sync
     tts_python: str | None = None  # studio: Python interpreter that has chatterbox-tts installed
     host: str = "127.0.0.1"
@@ -52,6 +56,11 @@ def get_settings() -> Settings:
         anthropic_api_key=env.get("ANTHROPIC_API_KEY") or None,
         anthropic_workspace_id=env.get("ANTHROPIC_WORKSPACE_ID") or None,
         api_token=env.get("AIOS_API_TOKEN") or None,
+        openai_api_key=env.get("OPENAI_API_KEY") or None,
+        muse_api_key=env.get("MUSE_API_KEY") or env.get("MODEL_API_KEY") or None,
+        typesafe_api_key=env.get("TYPESAFE_API_KEY") or None,
+        ollama_url=(env.get("AIOS_OLLAMA_URL") or ("http://127.0.0.1:11434/v1" if env.get("AIOS_OLLAMA") in ("1", "true")
+                                                   else None)),
         replicate_api_token=env.get("REPLICATE_API_TOKEN") or None,
         tts_python=env.get("AIOS_TTS_PYTHON") or None,
         host=env.get("AIOS_HOST", "127.0.0.1"),

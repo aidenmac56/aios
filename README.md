@@ -47,6 +47,29 @@ metrics, the dashboard, memory, planning and audit logs all work without a key; 
 
 The same commands exist as Claude Code slash commands in `.claude/commands/` (`/ceo`, `/board`, `/research`, ...).
 
+## Multi-model: Claude, Muse, ChatGPT, local (`aios multi`)
+
+```bash
+aios models                                   # what's connected, what it costs, how to connect the rest
+aios multi "Write 5 hooks for the missed-calls video"          # routed to the best connected model
+aios multi "Should video 1 be the demo or the math?"           # judgment call → several models in parallel, reconciled
+aios multi "..." --models "muse-spark-1.3,shortcut:AIOS Ask ChatGPT,claude-sonnet-5-5"
+```
+
+| Name | What it is | Access | Cost |
+|---|---|---|---|
+| Claude | Anthropic API (the agents) | `ANTHROPIC_API_KEY` | paid per token |
+| Muse | Meta's Muse Spark, Meta Model API | `MODEL_API_KEY` | $1.25 / $4.25 per M tokens; US preview |
+| ChatGPT (free) | macOS Shortcut using Apple Intelligence's "Use Model → ChatGPT" | `aios mac allow "AIOS Ask ChatGPT"` | free, daily limits |
+| ChatGPT (API) | OpenAI API, e.g. `gpt-5.6-terra` | `OPENAI_API_KEY` | paid per token |
+| Local | Ollama on this Mac | `AIOS_OLLAMA=1` | free, never leaves the Mac |
+| Jev | TypeSafe AI decision model; picks task type and single vs parallel | `TYPESAFE_API_KEY` | ~$0.04 per M input tokens |
+
+Every run records why each model was picked, each model's status/time/cost, whether the answer is
+direct or synthesized, and which providers received the task text (only the text: no memory or files).
+`aios config set routing.agent_model_overrides '{"cmo": "muse-spark-1.3"}'` runs an agent on another provider.
+Shortcuts only run if you allowed them by exact name (`aios mac list|allow|disallow`); each run is audited.
+
 ## Your to-do list (Mac menu bar)
 
 Things only you can do, outside the system: tasks plans assign to you (`founder`) plus anything you add.

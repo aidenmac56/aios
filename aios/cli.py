@@ -19,7 +19,7 @@ from aios.core.actor import FOUNDER
 from aios.core.errors import AIOSError
 
 LLM_COMMANDS = ["ceo", "board", "research", "market", "opportunity", "decision", "cto", "plan", "priorities",
-                "audit", "improve", "trends", "draft"]
+                "audit", "improve", "trends", "draft", "multi"]
 
 
 def _p(obj) -> None:
@@ -91,6 +91,24 @@ def render(result: dict) -> str:
             out.append(f"  ignore: {x}")
         if tr.get("note"):
             out.append(f"  note: {tr['note']}")
+    if result.get("multi"):
+        m = result["multi"]
+        r = m["routing"]
+        out.append(f"\nRouting ({r['method']}, {r['mode']}): " + "; ".join(r["reasons"]))
+        for a in m["responses"]:
+            out.append(f"  {a['model']:<28} {a['status']:<8} {a['elapsed_s']:>5}s  ${a['cost_usd']:.4f}"
+                       + (f"  {a.get('error')}" if a.get("error") else ""))
+        res = m.get("result") or {}
+        out.append(f"\nAnswer ({res.get('kind')}{', by ' + res['model'] if res.get('model') else ''}):\n{res.get('answer', '')}")
+        for label, key in (("Agreed", "agreements"), ("Differed", "disagreements"), ("Check", "caveats")):
+            if res.get(key):
+                out += [f"{label}:"] + [f"  - {x}" for x in res[key]]
+        if res.get("kind") != "direct":
+            for a in m["responses"]:
+                if a.get("text"):
+                    out.append(f"\n--- {a['model']} ---\n{a['text'][:1500]}")
+        d = m["data_sent"]
+        out.append(f"\nSent: {d['what']} → {', '.join(d['to'])}" + ("  (left this Mac)" if d["left_mac"] else "  (stayed on this Mac)"))
     if result.get("test"):
         t = result["test"]
         out.append(f"\nTest of improvement {t['improvement_id']}: {t['conclusion']}")
@@ -136,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--decision", help="build the plan from an approved decision id")
         if c == "cto":
             p.add_argument("--no-research", action="store_true")
+        if c == "multi":
+            p.add_argument("--models", help="comma-separated model ids (see `aios models`); default: routed")
+            p.add_argument("--mode", choices=["auto", "single", "parallel"], default="auto")
     fp = sub.add_parser("finance")
     fp.add_argument("--import", dest="import_file")
     fp.add_argument("--account", default="Primary")
@@ -227,6 +248,10 @@ def main(argv: list[str] | None = None) -> int:
     td.add_argument("text", nargs="?", help="add: what to do; done/undo: the to-do id (prefix is fine)")
     td.add_argument("--priority", type=int, choices=[1, 2, 3, 4, 5], default=2)
     td.add_argument("--due", help="YYYY-MM-DD")
+    sub.add_parser("models", help="which AI models/providers are connected, what they cost, how to connect more")
+    mc = sub.add_parser("mac", help="macOS Shortcuts AIOS may run (founder-approved, audited)")
+    mc.add_argument("action", choices=["list", "allow", "disallow"], nargs="?", default="list")
+    mc.add_argument("name", nargs="?", help="exact shortcut name")
     wk = sub.add_parser("work", help="the system's own task queue: list it or run the ready tasks now")
     wk.add_argument("action", choices=["list", "run", "reopen", "add", "assign"], nargs="?", default="list")
     wk.add_argument("task_id", nargs="?", help="reopen/assign: task id; add: what the system should do")
@@ -287,6 +312,10 @@ def _dispatch(args) -> int:
         return _todo(sm, args)
     if args.cmd == "work":
         return _work(sm, args)
+    if args.cmd == "models":
+        return _models(sm, args)
+    if args.cmd == "mac":
+        return _mac(sm, args)
     if args.cmd == "menubar":
         from aios import menubar
 
@@ -339,6 +368,10 @@ def _dispatch(args) -> int:
             opts["decision_id"] = args.decision
         if getattr(args, "no_research", False):
             opts["research"] = False
+        if args.cmd == "multi":
+            opts["mode"] = args.mode
+            if args.models:
+                opts["models"] = args.models
         res = asyncio.run(engine.run(args.cmd, args.request, options=opts))
         _p(res) if args.json else print(render(res))
         return 0 if res["status"] in ("COMPLETED", "AWAITING_APPROVAL") else 1
@@ -562,6 +595,66 @@ def _dispatch(args) -> int:
             from aios.core.audit import verify_chain
 
             _p(verify_chain(s))
+    return 0
+
+
+def _models(sm, args) -> int:
+    from aios.llm.provider import build_registry
+    from aios.orchestrator import multi
+
+    reg = build_registry(require_anthropic=False)
+    with sm() as s:
+        provs, cat = multi.providers_status(s, reg), multi.catalog(s, reg)
+    if args.json:
+        _p({"providers": provs, "models": cat})
+        return 0
+    print("Providers")
+    for p in provs:
+        print(f"  {'✓' if p['connected'] else '·'} {p['label']:<42} {p['cost']}"
+              + ("" if p["leaves_mac"] else "  [stays on this Mac]"))
+        if p.get("detail"):
+            print(f"      {p['detail']}")
+        if p.get("setup"):
+            print(f"      to connect: {p['setup']}")
+    print("\nModels in routing (multi.routes / pinned agents)")
+    for m in cat:
+        print(f"  {'✓' if m['connected'] else '·'} {m['model']:<30} {m['status']}")
+    return 0
+
+
+def _mac(sm, args) -> int:
+    import shutil
+    import subprocess
+
+    from aios.core import sysconfig
+
+    with sm() as s:
+        allowed = list(sysconfig.get(s, "mac.allowed_shortcuts") or [])
+        if args.action == "list":
+            have = []
+            if shutil.which("shortcuts"):
+                have = [x for x in subprocess.run(["shortcuts", "list"], capture_output=True, text=True).stdout.splitlines() if x]
+            print("Allowed for AIOS: " + (", ".join(allowed) or "none"))
+            if have:
+                print("Shortcuts on this Mac (not allowed unless listed above):")
+                for n in have:
+                    print(f"  {'✓' if n in allowed else '·'} {n}")
+            elif not shutil.which("shortcuts"):
+                print("The Shortcuts command line tool isn't available here (it needs macOS).")
+            return 0
+        if not args.name:
+            raise AIOSError("Give the exact shortcut name, in quotes.")
+        if args.action == "allow":
+            if args.name not in allowed:
+                allowed.append(args.name)
+            why = "founder allowed AIOS to run this shortcut"
+        else:
+            allowed = [n for n in allowed if n != args.name]
+            why = "founder removed this shortcut"
+        sysconfig.set_value(s, "mac.allowed_shortcuts", allowed, FOUNDER, why)
+        s.commit()
+    print(f"{'Allowed' if args.action == 'allow' else 'Removed'}: {args.name}. Use it as model "
+          f"\"shortcut:{args.name}\" (e.g. aios multi \"...\" --models \"shortcut:{args.name}\").")
     return 0
 
 

@@ -8,7 +8,7 @@ import { FindingView } from "../components/FindingView";
 import { FinanceSnapshot } from "../components/FinanceSnapshot";
 import { ImprovementCard } from "../components/ImprovementCard";
 import { Table } from "../components/Table";
-import { DraftView, TestView, TrendsView } from "../components/TestAndTrends";
+import { DraftView, MultiView, TestView, TrendsView } from "../components/TestAndTrends";
 import { dateTime, duration, humanize, parseDate, shortId, usd } from "../format";
 import { useApi } from "../hooks";
 import { href } from "../router";
@@ -342,6 +342,7 @@ function ResultSections({ res, run }: { res: RunResult; run: RunDetail }) {
         </Callout>
       )}
 
+      {res.multi && <MultiView multi={res.multi} />}
       {res.draft && <DraftView draft={res.draft} />}
 
       {res.test && <TestView test={res.test} />}

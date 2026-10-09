@@ -125,19 +125,49 @@ class AnthropicProvider:
 
 @dataclass
 class ProviderRegistry:
-    """Resolves the provider for a model id. One provider today; the seam for others."""
+    """Resolves the provider for a model id by its prefix (see aios/llm/providers_extra.py)."""
 
     providers: dict[str, LLMProvider] = field(default_factory=dict)
     default: str = "anthropic"
 
+    PREFIXES = (("claude", "anthropic"), ("muse-", "muse"), ("gpt-", "openai"), ("o3", "openai"), ("o4", "openai"),
+                ("ollama/", "ollama"), ("shortcut:", "shortcuts"))
+
+    @classmethod
+    def provider_name(cls, model: str) -> str | None:
+        return next((p for prefix, p in cls.PREFIXES if model.startswith(prefix)), None)
+
     def for_model(self, model: str) -> LLMProvider:
-        if model.startswith("claude") and "anthropic" in self.providers:
-            return self.providers["anthropic"]
-        return self.providers[self.default]
+        name = self.provider_name(model) or self.default
+        if name not in self.providers:
+            raise MissingCredentials(f"{model} needs the '{name}' provider, which isn't set up. See `aios models`.")
+        return self.providers[name]
 
 
-def build_registry() -> ProviderRegistry:
+def build_registry(require_anthropic: bool = True) -> ProviderRegistry:
+    """Every provider whose credentials are present. Missing ones are simply absent (see `aios models`)."""
     from aios.config import get_settings
+    from aios.llm import providers_extra as px
 
     s = get_settings()
-    return ProviderRegistry(providers={"anthropic": AnthropicProvider(s.anthropic_api_key, s.anthropic_workspace_id)}, default="anthropic")
+    providers: dict[str, LLMProvider] = {}
+    if s.anthropic_api_key or require_anthropic:
+        providers["anthropic"] = AnthropicProvider(s.anthropic_api_key, s.anthropic_workspace_id)
+    if s.muse_api_key:
+        providers["muse"] = px.OpenAICompatProvider("muse", "https://api.meta.ai/v1", s.muse_api_key, key_name="MODEL_API_KEY")
+    if s.openai_api_key:
+        providers["openai"] = px.OpenAICompatProvider("openai", "https://api.openai.com/v1", s.openai_api_key,
+                                                      key_name="OPENAI_API_KEY")
+    if s.ollama_url:
+        providers["ollama"] = px.OpenAICompatProvider("ollama", s.ollama_url, None, key_name="", strip_prefix="ollama/",
+                                                      native_schema=False, max_tokens_field="max_tokens", timeout_s=600)
+    providers["shortcuts"] = px.ShortcutsProvider(allowed_loader=_allowed_shortcuts)
+    return ProviderRegistry(providers=providers, default="anthropic")
+
+
+def _allowed_shortcuts() -> list[str]:
+    from aios.core import sysconfig
+    from aios.db.base import session_factory
+
+    with session_factory()() as s:
+        return list(sysconfig.get(s, "mac.allowed_shortcuts") or [])

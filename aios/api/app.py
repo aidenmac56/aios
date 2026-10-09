@@ -205,7 +205,7 @@ class CommandIn(BaseModel):
 
 
 ALLOWED_OPTIONS = {"importance", "budget_usd", "force", "decision_id", "research", "no_commentary", "focus",
-                   "improvement_id"}
+                   "improvement_id", "models", "mode"}
 
 
 @app.post("/api/commands/{command}", dependencies=[api])
@@ -376,6 +376,15 @@ def patch_task(task_id: str, body: TaskIn, s=Depends(_session)):
 @app.get("/api/tasks", dependencies=[api])
 def list_tasks(s=Depends(_session)):
     return planning.priority_scores(s)
+
+
+@app.get("/api/models", dependencies=[api])
+def list_models(s=Depends(_session)):
+    from aios.llm.provider import build_registry
+    from aios.orchestrator import multi
+
+    reg = build_registry(require_anthropic=False)
+    return {"providers": multi.providers_status(s, reg), "models": multi.catalog(s, reg)}
 
 
 class TodoIn(BaseModel):

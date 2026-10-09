@@ -146,6 +146,7 @@ async def live(sm: sessionmaker) -> list[Check]:
                    f"`aios config set routing.models '{{...}}'` or check model access in the Claude Console.")
             out.append(Check(f"Structured output: {tier}", False, e.message[:400], fix))
             return out
+    out += await _other_providers(ctx)
     if not get_settings().web_search_enabled:
         out.append(Check("Web search", True, "disabled by AIOS_WEB_SEARCH=0 (research will be marked LOW confidence)"))
         return out
@@ -161,6 +162,34 @@ async def live(sm: sessionmaker) -> list[Check]:
     except AIOSError as e:
         out.append(Check("Web search", False, e.message[:300],
                          "Enable web search in the Claude Console, or set AIOS_WEB_SEARCH=0."))
+    return out
+
+
+async def _other_providers(ctx) -> list[Check]:
+    """One tiny call to each extra provider that is connected (Muse, OpenAI, Ollama). Fractions of a cent."""
+    from aios.core.errors import AIOSError
+    from aios.llm import calls
+
+    picks = {"muse": "muse-spark-1.3", "openai": "gpt-5.6-luna"}
+    reg = ctx.providers
+    out = []
+    for name, model in picks.items():
+        if name not in reg.providers:
+            continue
+        try:
+            r = await calls.text(ctx.child(agent_id=f"doctor:{name}"), model=model, system="Health check.",
+                                 prompt="Reply with the single word: ready", purpose="doctor", max_tokens=20)
+            out.append(Check(f"Provider: {name}", "ready" in r.text().lower(), f"{model} answered '{r.text()[:40]}'"))
+        except AIOSError as e:
+            out.append(Check(f"Provider: {name}", False, e.message[:300], f"Check the key, or the model id {model} "
+                             "(change multi.routes if your account uses a different one)."))
+    if "ollama" in reg.providers:
+        try:
+            r = await calls.text(ctx.child(agent_id="doctor:ollama"), model="ollama/llama3.2", system="Health check.",
+                                 prompt="Reply with the single word: ready", purpose="doctor", max_tokens=20)
+            out.append(Check("Provider: ollama", bool(r.text()), "local model answered"))
+        except AIOSError as e:
+            out.append(Check("Provider: ollama", False, e.message[:200], "Start Ollama and run: ollama pull llama3.2"))
     return out
 
 

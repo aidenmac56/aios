@@ -105,4 +105,9 @@ def choose(
             model = best
             tier = next((t for t, mm in models.items() if mm == best), tier)
 
+    pinned = (sysconfig.get(session, "routing.agent_model_overrides") or {}).get(agent_id)
+    if pinned:
+        reasons.append(f"founder pinned {agent_id} to {pinned}")
+        model = pinned
+
     return Route(tier=tier, model=model, reason="; ".join(reasons))

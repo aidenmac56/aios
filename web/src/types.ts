@@ -566,7 +566,29 @@ export interface DraftOutput {
   assumptions: string[];
 }
 
+export interface MultiResponse {
+  model: string;
+  provider?: string;
+  status: "ok" | "empty" | "failed" | "timeout";
+  text?: string;
+  error?: string;
+  elapsed_s: number;
+  cost_usd: number;
+  cut_off?: boolean;
+}
+
+export interface MultiResult {
+  routing: { method: string; category: string | null; mode: string; reasons: string[]; models: string[];
+             skipped: { model: string; why: string }[]; connected: string[] };
+  responses: MultiResponse[];
+  data_sent: { what: string; to: string[]; left_mac: boolean };
+  result: { kind: "direct" | "synthesized" | "unsynthesized"; model?: string; answer: string; agreements?: string[];
+            disagreements?: string[]; caveats?: string[]; confidence?: string; error?: string;
+            contributions?: { model: string; contribution: string }[] };
+}
+
 export interface RunResult {
+  multi?: MultiResult;
   draft?: DraftOutput;
   test?: TestResult;
   trends?: TrendReport;

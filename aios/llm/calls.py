@@ -215,6 +215,29 @@ def _validate_lenient(schema: type[T], data: Any) -> T:
     return schema.model_validate(data)
 
 
+async def text(ctx: CallContext, *, model: str, system: str, prompt: str, purpose: str = "analysis",
+               max_tokens: int = 4000) -> LLMResponse:
+    """Plain text answer from any connected provider, budget-checked and recorded like every call."""
+    req = LLMRequest(model=model, system=system, messages=[{"role": "user", "content": prompt}], max_tokens=max_tokens,
+                     cache_system=False)
+    resp = await _complete(ctx, req, purpose)
+    if resp.stop_reason == "refusal":
+        raise ModelError(f"{model} declined this request.", model=model)
+    return resp
+
+
+def record_external(ctx: CallContext, *, model: str, provider: str, purpose: str, input_tokens: int,
+                    output_tokens: int = 0, latency_ms: int | None = None, success: bool = True,
+                    error: str | None = None) -> int:
+    """Record a call made outside the LLMProvider interface (e.g. Jev) so cost and budget stay complete."""
+    from aios.llm.provider import Usage
+
+    resp = LLMResponse(content=[], stop_reason=None, usage=Usage(input_tokens=input_tokens, output_tokens=output_tokens),
+                       model=model, latency_ms=latency_ms or 0, provider=provider) if success else None
+    return _record(ctx, model=model, provider=provider, purpose=purpose, resp=resp, attempt=1, success=success,
+                   error=error, latency_ms=latency_ms)
+
+
 async def structured(ctx: CallContext, *, model: str, system: str, prompt: str, schema: type[T],
                      purpose: str = "analysis", max_tokens: int = 4000) -> T:
     """Ask for JSON that must validate against `schema` (API structured outputs + Pydantic validation)."""

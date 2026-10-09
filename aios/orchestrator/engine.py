@@ -59,6 +59,7 @@ class Engine:
             "cto": self.wf_cto, "finance": self.wf_finance, "plan": self.wf_plan, "priorities": self.wf_priorities,
             "audit": self.wf_audit, "improve": self.wf_improve, "learn": self.wf_learn,
             "test": self.wf_test, "trends": self.wf_trends, "draft": self.wf_draft,
+            "multi": self.wf_multi,
         }
 
     @property
@@ -623,6 +624,24 @@ class Engine:
         if not res.ok:
             raise AIOSError(f"Drafting failed: {res.error}")
         return {"draft": {k: v for k, v in res.output.items() if not k.startswith("_")}}
+
+    async def wf_multi(self, rc: RunCtx, request: str, options: dict) -> dict:
+        """Route one task to the best connected model(s) (Claude, Muse, ChatGPT, local, Shortcuts), reconcile."""
+        from aios.config import get_settings
+        from aios.llm.calls import CallContext
+        from aios.llm.jev import JevClient
+        from aios.orchestrator import multi
+
+        ctx = CallContext(sm=self.sm, providers=rc.providers, budget=rc.guard, workflow_run_id=rc.run_id,
+                          workflow="multi", agent_id="multi", api_retries=1, output_retries=1)
+        key = get_settings().typesafe_api_key
+        models = options.get("models")
+        if isinstance(models, str):
+            models = [m.strip() for m in models.split(",") if m.strip()]
+        out = await multi.run(ctx, self.sm, rc.providers, request, models=models or None,
+                              mode=options.get("mode", "auto"), jev=JevClient(key) if key else None,
+                              progress=rc.progress)
+        return {"multi": out}
 
     async def wf_trends(self, rc: RunCtx, request: str, options: dict) -> dict:
         """Trend intelligence: live research, then the CMO judges each trend on evidence, not popularity."""

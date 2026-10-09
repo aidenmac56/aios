@@ -1,5 +1,5 @@
 import { href } from "../router";
-import type { DraftOutput, TestArm, TestResult, TrendReport } from "../types";
+import type { DraftOutput, MultiResult, TestArm, TestResult, TrendReport } from "../types";
 import { Badge } from "./Badge";
 import { Bullets, Callout, Card, KV } from "./Card";
 import { Table } from "./Table";
@@ -160,6 +160,49 @@ export function DraftView({ draft }: { draft: DraftOutput }) {
             <Bullets items={draft.recommended} />
           </div>
         )}
+      </div>
+    </Card>
+  );
+}
+
+/** Multi-model run: why these models, what each returned, and the reconciled answer. */
+export function MultiView({ multi }: { multi: MultiResult }) {
+  const r = multi.result;
+  const kindLabel = r.kind === "direct" ? `direct from ${r.model}` : r.kind === "synthesized" ? `synthesized by ${r.model}` : "not synthesized";
+  return (
+    <Card title="Multi-model answer" sub={`Routing: ${multi.routing.method}, ${multi.routing.mode}${multi.routing.category ? `, task type ${multi.routing.category}` : ""}`}>
+      <div className="stack-sm">
+        <Callout tone={r.kind === "unsynthesized" ? "amber" : "blue"} title={`Answer (${kindLabel})`}>
+          <span style={{ whiteSpace: "pre-wrap" }}>{r.answer}</span>
+        </Callout>
+        {r.agreements && r.agreements.length > 0 && (<div><div className="subhead">Agreed</div><Bullets items={r.agreements} /></div>)}
+        {r.disagreements && r.disagreements.length > 0 && (<div><div className="subhead">Differed</div><Bullets items={r.disagreements} /></div>)}
+        {r.caveats && r.caveats.length > 0 && (<div><div className="subhead">Check before using</div><Bullets items={r.caveats} /></div>)}
+        <div className="subhead">Why these models</div>
+        <Bullets items={multi.routing.reasons} />
+        {multi.routing.skipped.length > 0 && (
+          <p className="small muted">Not connected: {multi.routing.skipped.map((x) => `${x.model} (${x.why})`).join("; ")}</p>
+        )}
+        <Table
+          rows={multi.responses}
+          rowKey={(a) => a.model}
+          columns={[
+            { key: "m", header: "Model", render: (a) => <span className="mono small">{a.model}</span> },
+            { key: "s", header: "Status", render: (a) => <Badge value={a.status === "ok" ? "COMPLETED" : "FAILED"} label={a.status} /> },
+            { key: "t", header: "Time", num: true, render: (a) => `${a.elapsed_s}s` },
+            { key: "c", header: "Cost", num: true, render: (a) => `$${a.cost_usd.toFixed(4)}` },
+            { key: "e", header: "Error", render: (a) => (a.error ? <span className="small">{a.error}</span> : <span className="muted">—</span>) },
+          ]}
+        />
+        {multi.responses.filter((a) => a.text && r.kind !== "direct").map((a) => (
+          <details key={a.model}>
+            <summary className="small">{a.model} said</summary>
+            <p className="prose" style={{ whiteSpace: "pre-wrap" }}>{a.text}</p>
+          </details>
+        ))}
+        <p className="small muted">
+          Sent: {multi.data_sent.what} to {multi.data_sent.to.join(", ")}. {multi.data_sent.left_mac ? "This left your Mac." : "This stayed on your Mac."}
+        </p>
       </div>
     </Card>
   );

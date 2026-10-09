@@ -27,6 +27,8 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
         {"FAST": "claude-haiku-4-5-20251001", "BALANCED": "claude-sonnet-5-5", "DEEP": "claude-opus-5-5"},
         "Model used for each tier.",
     ),
+    "routing.agent_model_overrides": ({}, "Run an agent on a specific model from any connected provider, e.g. "
+                                          "{\"cmo\": \"muse-spark-1.3\"}. See `aios models` for what's connected."),
     "routing.agent_tier_overrides": ({}, "Force a tier for an agent, e.g. {\"research\": \"BALANCED\"}."),
     "routing.equivalence_margin": (0.03, "If a cheaper model's eval score is within this margin, prefer it."),
     "routing.min_eval_cases": (3, "Evaluations needed before eval history can change routing."),
@@ -57,6 +59,18 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
         "Keyword rules for transaction categories. First match wins; 'transfer' is excluded from revenue/expense.",
     ),
     "finance.cogs_categories": ([], "Expense categories counted as cost of goods sold for gross margin."),
+    "multi.routes": (
+        {"writing": ["muse-spark-1.3", "gpt-5.6-terra", "shortcut:AIOS Ask ChatGPT", "claude-sonnet-5-5"],
+         "research": ["claude-sonnet-5-5", "gpt-5.6-terra", "muse-spark-1.3"],
+         "analysis": ["claude-opus-5-5", "gpt-5.6-terra", "muse-spark-1.3"],
+         "code": ["claude-sonnet-5-5", "gpt-5.6-terra", "muse-spark-1.3"],
+         "quick": ["ollama/llama3.2", "shortcut:AIOS Ask ChatGPT", "gpt-5.6-luna", "claude-haiku-4-5-20251001"]},
+        "Preferred models per task type, best first. Only connected models are used. These are starting "
+        "guesses: compare results with `aios multi --models a,b` and reorder."),
+    "multi.max_models": (3, "Most models asked at once in parallel mode."),
+    "multi.synthesizer": ("claude-sonnet-5-5", "Model that reconciles parallel answers into one."),
+    "multi.timeout_s": (180, "Per-model timeout in a multi-model run."),
+    "mac.allowed_shortcuts": ([], "macOS shortcuts AIOS may run (exact names). Founder-only; each run is audited."),
     "media.dir": ("data/media", "Where studio files are stored (relative to the repo root). Git-ignored."),
     "media.tts_model": ("turbo", "Chatterbox model: 'turbo' (English, fastest) or 'original'."),
     "media.tts_device": ("auto", "Where speech is generated: auto (Apple GPU 'mps' if present), mps, cuda or cpu."),
