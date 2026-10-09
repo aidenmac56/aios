@@ -28,6 +28,7 @@ def register_handlers() -> None:
 
 def init(url: str | None = None) -> sessionmaker:
     logging.basicConfig(level=get_settings().log_level, format="%(levelname)s %(name)s: %(message)s")
+    logging.getLogger("alembic").setLevel(logging.WARNING)  # migration chatter on every command
     url = url or get_settings().database_url
     upgrade(url)
     sm = session_factory(url)
