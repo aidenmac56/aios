@@ -248,6 +248,8 @@ def main(argv: list[str] | None = None) -> int:
     td.add_argument("text", nargs="?", help="add: what to do; done/undo: the to-do id (prefix is fine)")
     td.add_argument("--priority", type=int, choices=[1, 2, 3, 4, 5], default=2)
     td.add_argument("--due", help="YYYY-MM-DD")
+    mp_ = sub.add_parser("mcp", help="run AIOS as an MCP server, or --install it into the Claude desktop app")
+    mp_.add_argument("--install", action="store_true")
     sub.add_parser("models", help="which AI models/providers are connected, what they cost, how to connect more")
     mc = sub.add_parser("mac", help="macOS Shortcuts AIOS may run (founder-approved, audited)")
     mc.add_argument("action", choices=["list", "allow", "disallow"], nargs="?", default="list")
@@ -297,6 +299,20 @@ def _dispatch(args) -> int:
         r = import_db(args.url or get_settings().database_url, args.path)
         print(json.dumps({k: r[k] for k in ("ok", "mismatched", "audit_chain")}, indent=2, default=str))
         return 0 if r["ok"] else 1
+    if args.cmd == "mcp":
+        from aios import mcp_server
+
+        if args.install:
+            try:
+                import mcp  # noqa: F401
+            except ImportError:
+                print("Install the MCP SDK first:  pip install mcp", file=sys.stderr)
+                return 2
+            p = mcp_server.install()
+            print(f"Added AIOS to {p}. Quit and reopen the Claude app; AIOS's tools appear under connectors.")
+            return 0
+        mcp_server.main()
+        return 0
     if args.cmd == "serve":
         import uvicorn
 

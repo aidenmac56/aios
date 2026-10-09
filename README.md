@@ -47,6 +47,19 @@ metrics, the dashboard, memory, planning and audit logs all work without a key; 
 
 The same commands exist as Claude Code slash commands in `.claude/commands/` (`/ceo`, `/board`, `/research`, ...).
 
+## Run AIOS by chatting (MCP server for the Claude app)
+
+```bash
+pip install mcp
+aios mcp --install      # adds AIOS to the Claude desktop app's config (keeps a .bak); then quit and reopen Claude
+```
+
+Then in the Claude app: "what's on my list?", "check off the beehiiv one", "give the system a task to write
+5 hooks", "run the system tasks", "research AI receptionists for HVAC and show me the result".
+15 tools: to-dos, system queue, start/poll workflows, runs, approvals (read-only), memory search, costs, models.
+The chat runs on your Claude subscription; agent work it starts uses the API with the usual budgets.
+Approving and changing configuration are deliberately not exposed: those stay with you.
+
 ## Multi-model: Claude, Muse, ChatGPT, local (`aios multi`)
 
 ```bash
