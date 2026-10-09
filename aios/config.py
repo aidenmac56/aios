@@ -28,6 +28,7 @@ def _load_dotenv(path: Path) -> None:
 class Settings(BaseModel):
     database_url: str = Field(default_factory=lambda: f"sqlite:///{ROOT / 'data' / 'aios.db'}")
     anthropic_api_key: str | None = None
+    anthropic_workspace_id: str | None = None  # only for organization-level keys not scoped to a workspace
     api_token: str | None = None  # optional bearer token for the local API
     host: str = "127.0.0.1"
     port: int = 8787
@@ -47,6 +48,7 @@ def get_settings() -> Settings:
     return Settings(
         database_url=env.get("AIOS_DATABASE_URL") or Settings().database_url,
         anthropic_api_key=env.get("ANTHROPIC_API_KEY") or None,
+        anthropic_workspace_id=env.get("ANTHROPIC_WORKSPACE_ID") or None,
         api_token=env.get("AIOS_API_TOKEN") or None,
         host=env.get("AIOS_HOST", "127.0.0.1"),
         port=int(env.get("AIOS_PORT", "8787")),

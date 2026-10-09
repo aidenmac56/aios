@@ -65,14 +65,15 @@ class LLMProvider(Protocol):
 class AnthropicProvider:
     name = "anthropic"
 
-    def __init__(self, api_key: str | None):
+    def __init__(self, api_key: str | None, workspace_id: str | None = None):
         if not api_key:
             raise MissingCredentials(
                 "ANTHROPIC_API_KEY is not set. Add it to your environment or the .env file (never commit it).")
         import anthropic
 
         self._anthropic = anthropic
-        self.client = anthropic.AsyncAnthropic(api_key=api_key, max_retries=0, timeout=300)
+        headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
+        self.client = anthropic.AsyncAnthropic(api_key=api_key, max_retries=0, timeout=300, default_headers=headers)
 
     async def complete(self, req: LLMRequest) -> LLMResponse:
         a = self._anthropic
@@ -97,6 +98,11 @@ class AnthropicProvider:
                 raise TransientModelError(f"{type(e).__name__}: {e}") from e
             if isinstance(e, a.AuthenticationError):
                 raise MissingCredentials("The Anthropic API rejected the API key.") from e
+            if "anthropic-workspace-id" in f"{e} {getattr(e, 'body', '')}":
+                raise MissingCredentials(
+                    "This API key is not tied to a workspace. Easiest fix: in console.anthropic.com open a workspace "
+                    "(e.g. Default), create a new API key inside it, and put that key in .env. Or keep this key and "
+                    "add ANTHROPIC_WORKSPACE_ID=wrkspc_... to .env.") from e
             raise ModelError(f"{type(e).__name__}: {e}", status=getattr(e, "status_code", None)) from e
         latency = int((time.monotonic() - start) * 1000)
         u = resp.usage
@@ -130,4 +136,4 @@ def build_registry() -> ProviderRegistry:
     from aios.config import get_settings
 
     s = get_settings()
-    return ProviderRegistry(providers={"anthropic": AnthropicProvider(s.anthropic_api_key)}, default="anthropic")
+    return ProviderRegistry(providers={"anthropic": AnthropicProvider(s.anthropic_api_key, s.anthropic_workspace_id)}, default="anthropic")

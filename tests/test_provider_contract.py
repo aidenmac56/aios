@@ -127,3 +127,25 @@ def test_doctor_offline(sm):
     assert checks["Database migrations"].ok and checks["Agents registered"].ok
     assert checks["Audit log hash chain"].ok and checks["Model prices known"].ok
     assert checks[".env is git-ignored"].ok
+
+
+async def test_unscoped_key_error_explains_the_fix(monkeypatch):
+    import httpx
+
+    p = AnthropicProvider("sk-ant-test-key-not-real")
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(400, request=request, json={"type": "error", "error": {
+        "type": "invalid_request_error",
+        "message": "This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header"}})
+
+    async def fake_create(**kwargs):
+        raise p.client._make_status_error("bad", body=response.json(), response=response)
+
+    monkeypatch.setattr(p.client.messages, "create", fake_create)
+    with pytest.raises(MissingCredentials, match="workspace"):
+        await p.complete(LLMRequest(model="m", system="s", messages=[{"role": "user", "content": "x"}]))
+
+
+def test_workspace_header_is_sent_when_configured():
+    p = AnthropicProvider("sk-ant-test-key-not-real", "wrkspc_123")
+    assert p.client.default_headers.get("anthropic-workspace-id") == "wrkspc_123"

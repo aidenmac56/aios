@@ -102,8 +102,9 @@ async def live(sm: sessionmaker) -> list[Check]:
         out.append(Check("Structured output (forced tool call)", ping.answer.strip().lower().startswith("ready"),
                          f"{model} answered '{ping.answer}' (${ctx.spent_micros / 1e6:.4f})"))
     except AIOSError as e:
-        out.append(Check("Structured output (forced tool call)", False, e.message[:300],
-                         "Check the model id in `aios config get routing.models` and your account's model access."))
+        fix = ("" if e.code == "missing_credentials" else
+               "Check the model id in `aios config get routing.models` and your account's model access.")
+        out.append(Check("Structured output (forced tool call)", False, e.message[:400], fix))
         return out
     if not get_settings().web_search_enabled:
         out.append(Check("Web search", True, "disabled by AIOS_WEB_SEARCH=0 (research will be marked LOW confidence)"))
