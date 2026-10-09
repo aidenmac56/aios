@@ -3,7 +3,7 @@
 AI Company OS for one founder (Aiden McCaffery). Read `docs/architecture.md` before changing structure.
 
 ## Rules for working in this repo
-- No scheduled tasks, cron, or background agents. Workflows start only from a command, the API/dashboard, or an approval the founder just gave. Events are recorded, never auto-handled.
+- The only scheduled/background work is **autopilot** (`aios/modules/autopilot.py`), which the founder turns on himself (`aios autopilot on`; founder chose daily + react-to-events, $5/day cap on 2026-10-09). It acts as `system:autopilot`, never holds NEVER_FOR_AGENTS permissions, and stops at its daily cap. Add no other schedulers, cron jobs or event handlers. Everything else starts from a command, the API/dashboard/MCP, or an approval the founder just gave.
 - Founder is the final authority. Never approve approvals, change `system_configuration`, or activate agent versions on his behalf.
 - Never fabricate data: no invented sources, transactions, customers, or metrics. Missing data is reported as missing.
 - Numbers are computed in code (`aios/modules/metrics.py`, `finance.unit_economics`); agents interpret them. One definition per metric.
@@ -19,6 +19,7 @@ AI Company OS for one founder (Aiden McCaffery). Read `docs/architecture.md` bef
 - Studio (voice/face clone): `scripts/setup_studio.sh`, then `aios voice|avatar setup … --mine`, `aios voice say`, `aios video make`.
 - Multi-model: providers in `aios/llm/providers_extra.py` (prefix routing in `ProviderRegistry`), Jev router `aios/llm/jev.py`, orchestration `aios/orchestrator/multi.py`; `aios models`, `aios multi`, `aios mac`.
 - MCP server for the Claude app: `aios mcp [--install]` (`aios/mcp_server.py`); no approve/config tools by design.
+- Autopilot: `aios autopilot on|off|status|run|log` (macOS LaunchAgent `com.aios.autopilot`).
 - Founder to-dos: `aios todo`; system queue (agent-owned tasks, founder-started): `aios work [run]` (`modules/workqueue.py`); Mac menu bar `aios menubar [--install]` (`aios/modules/todos.py`, `aios/menubar.py`).
 - Dashboard source: `web/` (Vite + React + TS) → `npm run build` writes `aios/web_dist/`.
 

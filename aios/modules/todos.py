@@ -64,7 +64,7 @@ def recently_done(session: Session, hours: int = 24) -> list[dict]:
 
 def add(session: Session, actor: Actor, title: str, *, priority: int = 2, due: date | None = None,
         note: str | None = None) -> Task:
-    if not actor.is_founder:
+    if actor.is_agent:  # the founder, or autopilot (system) handing him a real-world step
         raise PermissionDenied("Only the founder adds to his own to-do list; agents put tasks in plans.", actor=str(actor))
     title = title.strip()
     if not title:

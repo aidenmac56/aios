@@ -47,6 +47,20 @@ metrics, the dashboard, memory, planning and audit logs all work without a key; 
 
 The same commands exist as Claude Code slash commands in `.claude/commands/` (`/ceo`, `/board`, `/research`, ...).
 
+## Autopilot: AIOS works on its own
+
+```bash
+aios autopilot on --cap 5        # every morning at 07:00 + right after you finish something that unlocks system work
+aios autopilot status            # on/off, today's spend vs cap, last cycle
+aios autopilot log               # what each cycle did
+aios autopilot run               # one cycle now
+aios autopilot off
+```
+
+Each cycle: once a week it pulls this week's AI trends for local service businesses, queues a video script
+for the system and "review and film" for you; every cycle it works through the system's queue until the
+daily cap; daily it refreshes priorities. It never publishes, sends, approves or changes settings.
+
 ## Run AIOS by chatting (MCP server for the Claude app)
 
 ```bash

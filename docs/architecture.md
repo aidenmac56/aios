@@ -258,3 +258,14 @@ config). Jev (TypeSafe) is not a text provider: `aios/llm/jev.py` answers typed 
 connected models) → parallel calls with per-model timeout → direct answer or structured synthesis by
 `multi.synthesizer`. All calls go through `calls._complete`, so budgets, retries and `model_usage` apply
 to every provider. Only the task text is sent. `routing.agent_model_overrides` pins an agent to a model.
+
+
+## Autopilot (founder-enabled autonomy)
+
+Off by default. `aios autopilot on` (founder-only config change) installs a LaunchAgent that runs one cycle
+daily, and, if `autopilot.react_to_events`, a founder check-off that unlocks system work spawns an event
+cycle. A cycle: weekly trends pull → queue "draft this week's video script" (cmo) and "review and film"
+(founder) → run ready system tasks while autopilot's spend today (sum of its runs' cost) is under
+`autopilot.daily_cap_usd` → daily priorities → AUTOPILOT_CYCLE event, audit entry, Mac notification.
+Actor `system:autopilot`: can write records, cannot publish/send, approve, spend or reconfigure.
+One cycle at a time (data/autopilot.lock).

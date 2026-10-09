@@ -250,6 +250,12 @@ def main(argv: list[str] | None = None) -> int:
     td.add_argument("--due", help="YYYY-MM-DD")
     mp_ = sub.add_parser("mcp", help="run AIOS as an MCP server, or --install it into the Claude desktop app")
     mp_.add_argument("--install", action="store_true")
+    ap_ = sub.add_parser("autopilot", help="let AIOS work on its own each morning (and on events), within a daily cap")
+    ap_.add_argument("action", choices=["on", "off", "status", "run", "log"], nargs="?", default="status")
+    ap_.add_argument("--at", default=None, help="on: daily time, HH:MM (default 07:00)")
+    ap_.add_argument("--cap", type=float, default=None, help="on: max AI spend per day in USD (default 5)")
+    ap_.add_argument("--no-react", action="store_true", help="on: daily only, don't react to events")
+    ap_.add_argument("--reason", default="manual", choices=["manual", "daily", "event"])
     sub.add_parser("models", help="which AI models/providers are connected, what they cost, how to connect more")
     mc = sub.add_parser("mac", help="macOS Shortcuts AIOS may run (founder-approved, audited)")
     mc.add_argument("action", choices=["list", "allow", "disallow"], nargs="?", default="list")
@@ -330,6 +336,8 @@ def _dispatch(args) -> int:
         return _work(sm, args)
     if args.cmd == "models":
         return _models(sm, args)
+    if args.cmd == "autopilot":
+        return _autopilot(sm, args)
     if args.cmd == "mac":
         return _mac(sm, args)
     if args.cmd == "menubar":
@@ -614,6 +622,78 @@ def _dispatch(args) -> int:
     return 0
 
 
+def _autopilot(sm, args) -> int:
+    from aios.core import sysconfig
+    from aios.modules import autopilot
+
+    if args.action == "run":
+        if not autopilot.acquire_lock():
+            print("Autopilot is already running.", file=sys.stderr)
+            return 1
+        try:
+            res = asyncio.run(autopilot.run_cycle(sm, _engine(sm), reason=args.reason))
+        finally:
+            autopilot.release_lock()
+        _p(res) if args.json else print(_autopilot_line(res))
+        return 0
+    with sm() as s:
+        if args.action == "on":
+            at = args.at or sysconfig.get(s, "autopilot.daily_time")
+            sysconfig.set_value(s, "autopilot.enabled", True, FOUNDER, "founder turned autopilot on")
+            sysconfig.set_value(s, "autopilot.react_to_events", not args.no_react, FOUNDER, "founder set autopilot mode")
+            sysconfig.set_value(s, "autopilot.daily_time", at, FOUNDER, "founder set autopilot time")
+            if args.cap is not None:
+                sysconfig.set_value(s, "autopilot.daily_cap_usd", args.cap, FOUNDER, "founder set autopilot cap")
+            s.commit()
+            path = autopilot.install_schedule(at)
+            st = autopilot.status(s)
+            print(f"Autopilot ON: every day at {at}" + (" and when you finish something that unlocks system work"
+                  if st["react"] else "") + f". Cap ${st['cap_usd']:.2f}/day. Schedule: {path}")
+            print("It never publishes, sends, approves or changes settings. Turn off: aios autopilot off")
+            return 0
+        if args.action == "off":
+            sysconfig.set_value(s, "autopilot.enabled", False, FOUNDER, "founder turned autopilot off")
+            s.commit()
+            autopilot.remove_schedule()
+            print("Autopilot OFF. Nothing runs unless you start it.")
+            return 0
+        if args.action == "log":
+            from sqlalchemy import select
+
+            from aios.db.models import EventRecord
+
+            rows = s.execute(select(EventRecord).where(EventRecord.type == autopilot.EVENT)
+                             .order_by(EventRecord.created_at.desc()).limit(10)).scalars().all()
+            if not rows:
+                print("No autopilot cycles yet.")
+            for e in rows:
+                print(f"{e.created_at:%Y-%m-%d %H:%M} UTC  " + _autopilot_line({"ran": True, **(e.payload or {})}))
+            return 0
+        st = autopilot.status(s)
+    if args.json:
+        _p(st)
+        return 0
+    print(f"Autopilot {'ON' if st['enabled'] else 'OFF'}" + (f", daily at {st['at']}" if st["enabled"] else "")
+          + (", reacts to events" if st["enabled"] and st["react"] else ""))
+    print(f"Today: ${st['spent_today_usd']:.2f} of ${st['cap_usd']:.2f}")
+    if st["last_cycle"]:
+        print("Last cycle: " + st["last_cycle"]["at"][:16] + "  " + _autopilot_line({"ran": True, **st["last_cycle"]}))
+    return 0
+
+
+def _autopilot_line(res: dict) -> str:
+    if not res.get("ran"):
+        return f"Didn't run: {res.get('why')}"
+    tasks = res.get("tasks") or []
+    ok = sum(1 for t in tasks if t["status"] == "COMPLETED")
+    parts = [f"({res.get('reason')})", f"{ok}/{len(tasks)} system tasks done"]
+    if res.get("weekly"):
+        parts.append("weekly trends + script queued")
+    parts.append(f"${res.get('spent_today_usd', 0):.2f} today")
+    parts += res.get("notes") or []
+    return "  ".join(parts)
+
+
 def _models(sm, args) -> int:
     from aios.llm.provider import build_registry
     from aios.orchestrator import multi
@@ -766,6 +846,11 @@ def _todo(sm, args) -> int:
             t = (todos.complete if args.action == "done" else todos.reopen)(s, FOUNDER, tid)
             s.commit()
             print(f"{'Done' if args.action == 'done' else 'Reopened'}: {t.title}")
+            if args.action == "done":
+                from aios.modules import autopilot
+
+                if autopilot.react(sm):
+                    print("Autopilot started on the system work this unlocked.")
             return 0
         rows, done = todos.open_todos(s), todos.recently_done(s)
     if args.json:

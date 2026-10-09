@@ -59,6 +59,15 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
         "Keyword rules for transaction categories. First match wins; 'transfer' is excluded from revenue/expense.",
     ),
     "finance.cogs_categories": ([], "Expense categories counted as cost of goods sold for gross margin."),
+    "autopilot.enabled": (False, "Founder switch: AIOS runs a cycle every morning (aios autopilot on/off)."),
+    "autopilot.react_to_events": (False, "Also run a cycle right after the founder finishes something that "
+                                         "unlocks system work."),
+    "autopilot.daily_cap_usd": (5.0, "Most autopilot may spend on AI per UTC day. It stops when reached."),
+    "autopilot.max_tasks_per_cycle": (5, "Most system tasks one cycle runs."),
+    "autopilot.daily_time": ("07:00", "Local time of the daily cycle."),
+    "autopilot.weekly_trends_topic": ("AI news and tools that matter this week for San Diego local service "
+                                      "businesses (plumbing, HVAC, roofing, cleaning, landscaping)",
+                                      "Topic of the weekly trends pull that seeds the week's video script."),
     "multi.routes": (
         {"writing": ["muse-spark-1.3", "gpt-5.6-terra", "shortcut:AIOS Ask ChatGPT", "claude-sonnet-5-5"],
          "research": ["claude-sonnet-5-5", "gpt-5.6-terra", "muse-spark-1.3"],

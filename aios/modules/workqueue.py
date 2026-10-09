@@ -117,23 +117,27 @@ def reopen(session: Session, task_id: str, why: str) -> Task:
 
 
 async def run_ready(sm: sessionmaker, engine, *, max_tasks: int = 3, budget_usd: float | None = None,
-                    on_task=None) -> list[dict[str, Any]]:
+                    on_task=None, actor=FOUNDER, budget_for_next=None) -> list[dict[str, Any]]:
     """Run up to `max_tasks` ready system tasks, one after another. Stops at the first budget stop."""
     with sm() as s:
         todo = runnable(s)[:max_tasks]
     results = []
     for item in todo:
+        if budget_for_next is not None:  # autopilot: stop when its daily cap can't cover another task
+            budget_usd = budget_for_next()
+            if budget_usd is None:
+                break
         with sm() as s:
             t = s.get(Task, item["id"])
             if t.status not in (TaskStatus.READY, TaskStatus.FAILED):  # someone else picked it up
                 continue
-            planning.update_task(s, FOUNDER, t.id, status=TaskStatus.RUNNING)
+            planning.update_task(s, actor, t.id, status=TaskStatus.RUNNING)
             request = request_for(t, s.get(Project, t.project_id) if t.project_id else None)
             s.commit()
         if on_task:
             on_task(item)
         opts = {"budget_usd": budget_usd} if budget_usd else {}
-        res = await engine.run(item["workflow"], request, options=opts)
+        res = await engine.run(item["workflow"], request, options=opts, actor=actor)
         status = res["status"]
         with sm() as s:
             t = s.get(Task, item["id"])
@@ -142,15 +146,15 @@ async def run_ready(sm: sessionmaker, engine, *, max_tasks: int = 3, budget_usd:
             t.actual_cost_micros = (t.actual_cost_micros or 0) + int(round(res.get("cost_usd", 0) * 1e6))
             if status == "COMPLETED":
                 t.error = None
-                planning.update_task(s, FOUNDER, t.id, status=TaskStatus.COMPLETED, criteria_met=True,
+                planning.update_task(s, actor, t.id, status=TaskStatus.COMPLETED, criteria_met=True,
                                      result_note=f"done by the system: {item['workflow']} run {res['run_id']}")
             elif status == "AWAITING_APPROVAL":  # a decision that needs the founder: his move now
                 t.error = None
-                planning.update_task(s, FOUNDER, t.id, status=TaskStatus.WAITING,
+                planning.update_task(s, actor, t.id, status=TaskStatus.WAITING,
                                      result_note=f"waiting on your approval {res.get('approval_id')}")
             else:
                 t.error = ((res.get("error") or {}).get("message") or res.get("stopped") or status)[:500]
-                planning.update_task(s, FOUNDER, t.id, status=TaskStatus.FAILED)
+                planning.update_task(s, actor, t.id, status=TaskStatus.FAILED)
             s.commit()
         results.append({"task": item["title"], "workflow": item["workflow"], "status": status, "run_id": res["run_id"],
                         "cost_usd": res.get("cost_usd", 0), "approval_id": res.get("approval_id")})
@@ -159,18 +163,23 @@ async def run_ready(sm: sessionmaker, engine, *, max_tasks: int = 3, budget_usd:
     return results
 
 
-def add(session: Session, title: str, *, agent: str = "cmo", priority: int = 2, note: str | None = None) -> Task:
-    """The founder hands the system a task."""
+def add(session: Session, title: str, *, agent: str = "cmo", priority: int = 2, note: str | None = None,
+        actor=FOUNDER) -> Task:
+    """The founder (or autopilot) hands the system a task."""
     from aios.agents.specs import SPECS
     from aios.core.errors import ValidationFailed
 
     if agent not in SPECS:
         raise ValidationFailed(f"Unknown agent '{agent}'. Known: {', '.join(SPECS)}")
-    t = Task(kind=TaskKind.PLAN, title=title.strip()[:400], description=note, responsible_agent=agent, creator="founder",
+    if actor.is_agent:
+        from aios.core.errors import PermissionDenied
+
+        raise PermissionDenied("Agents propose tasks through plans, not the queue.", actor=str(actor))
+    t = Task(kind=TaskKind.PLAN, title=title.strip()[:400], description=note, responsible_agent=agent, creator=str(actor),
              priority=priority, status=TaskStatus.READY, completion_criteria="The workflow run completed with output.")
     session.add(t)
     session.flush()
-    audit.record(session, who="founder", what="work.add", input={"title": t.title, "agent": agent},
+    audit.record(session, who=str(actor), what="work.add", input={"title": t.title, "agent": agent},
                  target_type="task", target_id=t.id)
     return t
 

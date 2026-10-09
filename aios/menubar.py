@@ -50,7 +50,7 @@ def run() -> None:
         def __init__(self):
             super().__init__("AIOS", title="☐", quit_button=None)
             self.signature = None
-            self.queue, self.approvals = [], []
+            self.queue, self.approvals, self.auto = [], [], None
             self.refresh(None)
             self.timer = rumps.Timer(self.refresh, REFRESH_S)  # kept on self so it isn't garbage-collected
             self.timer.start()
@@ -61,12 +61,16 @@ def run() -> None:
                 with sm() as s:
                     open_, done = todos.open_todos(s), todos.recently_done(s)
                     self.queue = workqueue.queue(s)
+                    from aios.modules import autopilot
+
+                    self.auto = autopilot.status(s)
                     self.approvals = pending_approvals(s)
             except Exception as e:  # keep the icon alive; show the problem in the menu
                 self.title = "☐ !"
                 self._render([], [], error=str(e)[:80])
                 return
             sig = ([(t["id"], t["status"]) for t in open_ + done + self.queue]
+                   + [str((self.auto or {}).get("spent_today_usd")), str((self.auto or {}).get("enabled"))]
                    + [a["id"] for a in self.approvals])
             ready = [t for t in open_ if not t["waiting"]]
             mine = len(ready) + len(self.approvals)  # approvals are his to-dos too
@@ -139,7 +143,16 @@ def run() -> None:
                                           callback=self.run_system)
             else:
                 run_item = rumps.MenuItem("Nothing ready for the system")
-            return [(head, sub), run_item]
+            out = [(head, sub), run_item]
+            a = getattr(self, "auto", None)
+            if a:
+                if a["enabled"]:
+                    last = a.get("last_cycle") or {}
+                    out.append(rumps.MenuItem(f"Autopilot on · ${a['spent_today_usd']:.2f} of ${a['cap_usd']:.0f} today"
+                                              + (f" · last {last['at'][11:16]} UTC" if last else "")))
+                else:
+                    out.append(rumps.MenuItem("Autopilot off (aios autopilot on)"))
+            return out
 
         def run_system(self, _):
             """The founder's click starts one `aios work run` (up to 3 tasks, budget-checked)."""
@@ -174,6 +187,11 @@ def run() -> None:
                     else:
                         todos.complete(s, FOUNDER, item.task_id, note="checked off in the menu bar")
                     s.commit()
+                if not item.state:
+                    from aios.modules import autopilot
+
+                    if autopilot.react(sm):
+                        rumps.notification("AIOS", "Autopilot started", "Working on what that unlocked.")
             except AIOSError as e:
                 rumps.alert("Couldn't update", e.message)
             self.signature = None

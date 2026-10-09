@@ -82,7 +82,10 @@ def build(sm=None):
         with sm() as s:
             t = todos.complete(s, FOUNDER, resolve("tasks", todo_id), note="checked off via chat")
             s.commit()
-            return f"Done: {t.title}"
+        from aios.modules import autopilot
+
+        started = autopilot.react(sm)
+        return f"Done: {t.title}" + (" Autopilot started on the system work this unlocked." if started else "")
 
     @server.tool(description="Reopen a to-do that was checked off by mistake.")
     def reopen_todo(todo_id: str) -> str:
@@ -171,6 +174,14 @@ def build(sm=None):
                                                   or_(Memory.subject.ilike(like), Memory.content.ilike(like))).limit(25)).scalars()
             return _json([{"id": m.id[:8], "subject": m.subject, "content": m.content, "status": m.status.value,
                            "provenance": m.provenance.value} for m in rows])
+
+    @server.tool(description="Autopilot state: on/off, today's spend vs cap, last cycle summary. "
+                             "Turning it on/off is Aiden's call: `aios autopilot on|off`.")
+    def autopilot_status() -> str:
+        from aios.modules import autopilot
+
+        with sm() as s:
+            return _json(autopilot.status(s))
 
     @server.tool(description="AI spend by agent, model, workflow and day.")
     def costs(days: int = 30) -> str:

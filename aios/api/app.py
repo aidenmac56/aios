@@ -416,6 +416,10 @@ def todo_action(task_id: str, action: str, s=Depends(_session)):
         raise HTTPException(404, "action must be done or undo")
     t = (todos.complete if action == "done" else todos.reopen)(s, FOUNDER, task_id)
     s.commit()
+    if action == "done":
+        from aios.modules import autopilot
+
+        autopilot.react(sm())
     return _task_row(t)
 
 
