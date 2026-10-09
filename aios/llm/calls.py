@@ -138,44 +138,83 @@ def _inline_refs(schema: dict) -> dict:
     return walk(schema)
 
 
-def tool_schema(model_cls: type[BaseModel]) -> dict:
-    return _inline_refs(model_cls.model_json_schema())
+_NUMERIC = {"minimum": ">=", "maximum": "<=", "exclusiveMinimum": ">", "exclusiveMaximum": "<"}
+_DROP = {"multipleOf", "minLength", "maxLength", "maxItems", "pattern", "title"}
+
+
+def output_schema(model_cls: type[BaseModel]) -> dict:
+    """The JSON schema sent for structured outputs.
+
+    The API accepts a subset of JSON Schema: every object must say `additionalProperties: false`, and
+    numeric/length/array-size limits are not allowed. Those limits are moved into the field description
+    (so the model still sees them) and are enforced afterwards by Pydantic validation, with one retry.
+    """
+    schema = _inline_refs(model_cls.model_json_schema())
+
+    def walk(node):
+        if isinstance(node, list):
+            return [walk(x) for x in node]
+        if not isinstance(node, dict):
+            return node
+        out = {}
+        notes = []
+        for k, v in node.items():
+            if k in _NUMERIC:
+                notes.append(f"{_NUMERIC[k]} {v}")
+            elif k in ("minItems",) and isinstance(v, int) and v > 1:
+                notes.append(f"at least {v} items")
+            elif k == "maxItems":
+                notes.append(f"at most {v} items")
+            elif k in ("minLength", "maxLength"):
+                notes.append(f"{'min' if k == 'minLength' else 'max'} {v} characters")
+            elif k in _DROP:
+                continue
+            else:
+                out[k] = walk(v)
+        if notes:
+            out["description"] = (out.get("description", "") + f" ({'; '.join(notes)})").strip()
+        if out.get("type") == "object" or "properties" in out:
+            out["additionalProperties"] = False
+        return out
+
+    return walk(schema)
+
+
+# kept for callers/tests that still use the old name
+tool_schema = output_schema
 
 
 async def structured(ctx: CallContext, *, model: str, system: str, prompt: str, schema: type[T],
                      purpose: str = "analysis", max_tokens: int = 4000) -> T:
-    """Ask for output that must validate against `schema` (forced tool call)."""
-    tool_name = "submit_" + schema.__name__.lower()
-    tools = [{"name": tool_name, "description": f"Submit your final {schema.__name__}. Fill every field honestly; "
-              "use empty lists rather than inventing content.", "input_schema": tool_schema(schema)}]
+    """Ask for JSON that must validate against `schema` (API structured outputs + Pydantic validation)."""
+    name = "submit_" + schema.__name__.lower()
+    js = output_schema(schema)
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
-    full_system = system + "\n\n" + UNTRUSTED_NOTE
+    full_system = (system + "\n\n" + UNTRUSTED_NOTE + "\n\nRespond only with JSON matching the required schema. "
+                   "Fill every field honestly; use empty lists rather than inventing content.")
     for attempt in range(ctx.output_retries + 1):
-        req = LLMRequest(model=model, system=full_system, messages=messages, max_tokens=max_tokens, tools=tools,
-                         tool_choice={"type": "tool", "name": tool_name})
+        req = LLMRequest(model=model, system=full_system, messages=messages, max_tokens=max_tokens,
+                         output_schema=js, schema_name=name)
         resp = await _complete(ctx, req, purpose, attempt_base=attempt * 10)
-        data = resp.tool_input(tool_name)
+        raw = resp.text()
         try:
-            if data is None:
-                raise ValueError(f"model did not call {tool_name} (stop_reason={resp.stop_reason})")
-            return schema.model_validate(data)
-        except (ValidationError, ValueError) as e:
+            if resp.stop_reason == "max_tokens":
+                raise ValueError("the answer was cut off at max_tokens; be more concise")
+            if resp.stop_reason == "refusal":
+                raise ValueError("the model declined this request")
+            if not raw.strip():
+                raise ValueError(f"empty output (stop_reason={resp.stop_reason})")
+            return schema.model_validate(json.loads(raw))
+        except (ValidationError, ValueError) as e:  # JSONDecodeError is a ValueError
             err = str(e)[:2000]
             log.warning("malformed output from %s (%s): %s", model, purpose, err[:300])
-            if attempt >= ctx.output_retries:
+            if attempt >= ctx.output_retries or resp.stop_reason == "refusal":
                 raise MalformedOutput(f"Output failed validation after {attempt + 1} attempt(s): {err[:500]}",
                                       model=model, purpose=purpose) from e
-            tool_use = next((b for b in resp.content if b.get("type") == "tool_use"), None)
-            if tool_use:
-                messages = messages + [
-                    {"role": "assistant", "content": [tool_use]},
-                    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_use["id"],
-                                                  "is_error": True,
-                                                  "content": f"Validation failed: {err}. Call {tool_name} again with corrected input."}]},
-                ]
-            else:
-                messages = messages + [{"role": "assistant", "content": resp.text() or "(no output)"},
-                                       {"role": "user", "content": f"You must call {tool_name}. Error: {err}"}]
+            messages = messages + [
+                {"role": "assistant", "content": raw or "(no output)"},
+                {"role": "user", "content": f"That JSON failed validation: {err}\nReturn the complete corrected JSON."},
+            ]
     raise MalformedOutput("unreachable")  # pragma: no cover
 
 

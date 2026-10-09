@@ -7,6 +7,7 @@ caller-supplied function.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -29,6 +30,10 @@ class ScriptedProvider:
             return out
         tool_name = (req.tool_choice or {}).get("name")
         usage = Usage(input_tokens=1200, output_tokens=600)
+        if req.output_schema is not None:
+            text = out if isinstance(out, str) else json.dumps(out)
+            return LLMResponse(content=[{"type": "text", "text": text}], stop_reason="end_turn", usage=usage,
+                               model=req.model, latency_ms=5, provider=self.name)
         if tool_name:
             content = [{"type": "tool_use", "id": f"toolu_{len(self.requests)}", "name": tool_name, "input": out}]
             return LLMResponse(content=content, stop_reason="tool_use", usage=usage, model=req.model,

@@ -87,7 +87,8 @@ async def live(sm: sessionmaker) -> list[Check]:
     if not get_settings().has_llm_credentials:
         return [Check("Live model call", False, "skipped: no API key", "Add ANTHROPIC_API_KEY to .env.")]
     with sm() as s:
-        model = sysconfig.get(s, "routing.models")["FAST"]
+        sysconfig_models = sysconfig.get(s, "routing.models")
+        model = sysconfig_models["BALANCED"]  # the research agent searches on this tier
         guard = BudgetGuard(sm, Limits.load(s, workflow_override_usd=0.25))
     try:
         providers = build_registry()
@@ -95,17 +96,20 @@ async def live(sm: sessionmaker) -> list[Check]:
         return [Check("Live model call", False, e.message, "Check the key in .env.")]
     ctx = CallContext(sm=sm, providers=providers, budget=guard, workflow="doctor", agent_id="analytics", tier="FAST",
                       output_retries=1, api_retries=1)
-    try:
-        ping = await calls.structured(ctx, model=model, system="You are a health check.", schema=_Ping,
-                                      prompt="Reply with answer='ready' and your confidence.", purpose="doctor",
-                                      max_tokens=200)
-        out.append(Check("Structured output (forced tool call)", ping.answer.strip().lower().startswith("ready"),
-                         f"{model} answered '{ping.answer}' (${ctx.spent_micros / 1e6:.4f})"))
-    except AIOSError as e:
-        fix = ("" if e.code == "missing_credentials" else
-               "Check the model id in `aios config get routing.models` and your account's model access.")
-        out.append(Check("Structured output (forced tool call)", False, e.message[:400], fix))
-        return out
+    tiers = sysconfig_models
+    for tier, m in tiers.items():  # every configured model, so routing never hits a model that can't answer
+        try:
+            ping = await calls.structured(ctx.child(tier=tier), model=m, system="You are a health check.", schema=_Ping,
+                                          prompt="Reply with answer='ready' and your confidence.", purpose="doctor",
+                                          max_tokens=200)
+            out.append(Check(f"Structured output: {tier}", ping.answer.strip().lower().startswith("ready"),
+                             f"{m} answered '{ping.answer}'"))
+        except AIOSError as e:
+            fix = ("" if e.code == "missing_credentials" else
+                   f"Your account may not have access to {m}. Change it with "
+                   f"`aios config set routing.models '{{...}}'` or check model access in the Claude Console.")
+            out.append(Check(f"Structured output: {tier}", False, e.message[:400], fix))
+            return out
     if not get_settings().web_search_enabled:
         out.append(Check("Web search", True, "disabled by AIOS_WEB_SEARCH=0 (research will be marked LOW confidence)"))
         return out

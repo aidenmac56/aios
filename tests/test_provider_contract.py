@@ -21,12 +21,46 @@ ALL_SCHEMAS = [S.Intake, S.WorkPlan, S.ExecutiveBrief, S.RiskAudit, S.TwinAlignm
 
 
 @pytest.mark.parametrize("schema", ALL_SCHEMAS, ids=lambda s: s.__name__)
-def test_tool_schemas_are_self_contained_objects(schema):
+def test_output_schemas_use_only_supported_json_schema(schema):
     ts = tool_schema(schema)
     assert ts["type"] == "object" and ts.get("properties")
     blob = json.dumps(ts)
     assert "$ref" not in blob and "$defs" not in blob
     assert len(blob) < 60_000
+    banned = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength",
+              "maxItems"}
+
+    def walk(n):
+        if isinstance(n, dict):
+            assert not (banned & set(n)), set(n) & banned
+            if n.get("type") == "object" or "properties" in n:
+                assert n.get("additionalProperties") is False
+            if "minItems" in n:
+                assert n["minItems"] in (0, 1)
+            for v in n.values():
+                walk(v)
+        elif isinstance(n, list):
+            for v in n:
+                walk(v)
+
+    walk(ts)
+
+
+async def test_structured_output_request_shape(monkeypatch):
+    p = AnthropicProvider("sk-ant-test-key-not-real")
+    sent = {}
+
+    async def fake_create(**kwargs):
+        sent.update(kwargs)
+        return _message([{"type": "text", "text": '{"intent": "x"}'}], stop="end_turn")
+
+    monkeypatch.setattr(p.client.messages, "create", fake_create)
+    js = tool_schema(S.Intake)
+    resp = await p.complete(LLMRequest(model="claude-sonnet-5-5", system="s", messages=[{"role": "user", "content": "q"}],
+                                       output_schema=js))
+    assert sent["output_config"] == {"format": {"type": "json_schema", "schema": js}}
+    assert "tool_choice" not in sent and "tools" not in sent
+    assert resp.text() == '{"intent": "x"}'
 
 
 def _message(content, usage=None, stop="tool_use"):

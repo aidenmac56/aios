@@ -28,7 +28,7 @@ def responder(overrides: dict | None = None):
     overrides = overrides or {}
 
     def respond(req: LLMRequest):
-        tool = (req.tool_choice or {}).get("name")
+        tool = req.schema_name or (req.tool_choice or {}).get("name")
         if tool is None and req.tools and req.tools[0].get("type", "").startswith("web_search"):
             return LLMResponse(
                 content=[

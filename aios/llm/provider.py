@@ -27,6 +27,8 @@ class LLMRequest:
     max_tokens: int = 4000
     tools: list[dict[str, Any]] | None = None
     tool_choice: dict[str, Any] | None = None
+    output_schema: dict[str, Any] | None = None  # structured outputs (JSON schema)
+    schema_name: str | None = None  # label for logs/tests
     temperature: float | None = None
     cache_system: bool = True
 
@@ -86,6 +88,8 @@ class AnthropicProvider:
             kwargs["tools"] = req.tools
         if req.tool_choice:
             kwargs["tool_choice"] = req.tool_choice
+        if req.output_schema:
+            kwargs["output_config"] = {"format": {"type": "json_schema", "schema": req.output_schema}}
         if req.temperature is not None:
             kwargs["temperature"] = req.temperature
         start = time.monotonic()

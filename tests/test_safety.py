@@ -131,5 +131,5 @@ async def test_malformed_output_is_retried_once_then_fails_visibly(sm):
     res = await eng.run("research", "Market for AI receptionists")
     assert res["status"] == "FAILED"
     assert "validation" in res["error"]["message"].lower()
-    structure_calls = [r for r in bad.requests if (r.tool_choice or {}).get("name") == "submit_researchfinding"]
+    structure_calls = [r for r in bad.requests if r.schema_name == "submit_researchfinding"]
     assert len(structure_calls) == 2  # one retry, then stop
