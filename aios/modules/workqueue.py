@@ -60,7 +60,26 @@ def request_for(task: Task, project: Project | None) -> str:
         parts.append(f"Done when: {task.completion_criteria}")
     if project:
         parts.append(f"(Part of project: {project.name})")
+    why = (task.result or {}).get("reopened_because")
+    if why:  # the founder sent the last attempt back: revise it, don't start over blind
+        parts.append(f"The founder rejected the previous version. His feedback: {why}")
+        prev = _previous_output(task)
+        if prev:
+            parts.append(f"Previous version, to revise:\n{prev}")
     return "\n".join(parts)
+
+
+def _previous_output(task: Task) -> str | None:
+    from sqlalchemy.orm import object_session
+
+    from aios.db.models import WorkflowRun
+
+    run_id = (task.result or {}).get("run_id")
+    s = object_session(task)
+    run = s.get(WorkflowRun, run_id) if (s and run_id) else None
+    items = (((run.result or {}).get("draft") or {}).get("items") or []) if run else []
+    text = "\n\n".join(f"[{i['label']}]\n{i['text']}" for i in items)
+    return text[:6000] or None
 
 
 def _live_projects(session: Session) -> dict[str, Project]:

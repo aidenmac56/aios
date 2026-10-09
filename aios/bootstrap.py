@@ -28,7 +28,8 @@ def register_handlers() -> None:
 
 def init(url: str | None = None) -> sessionmaker:
     logging.basicConfig(level=get_settings().log_level, format="%(levelname)s %(name)s: %(message)s")
-    logging.getLogger("alembic").setLevel(logging.WARNING)  # migration chatter on every command
+    for noisy in ("alembic", "httpx", "httpx2", "httpcore"):  # per-request chatter on every command
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     url = url or get_settings().database_url
     upgrade(url)
     sm = session_factory(url)

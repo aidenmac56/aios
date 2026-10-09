@@ -69,3 +69,18 @@ def test_founder_can_hand_tasks_to_the_system_and_back(sm):
         workqueue.assign(s, mine.id, "founder")
         s.commit()
         assert mine.id in [x["id"] for x in todos.open_todos(s)]
+
+
+async def test_reopen_feedback_reaches_the_next_attempt(sm, engine):
+    with sm() as s:
+        write, _, _ = _setup(s)
+        s.commit()
+    first = await workqueue.run_ready(sm, engine, max_tasks=1)
+    with sm() as s:
+        workqueue.reopen(s, write.id, "shorter, under 60 seconds")
+        s.commit()
+    second = await workqueue.run_ready(sm, engine, max_tasks=1)
+    with sm() as s:
+        req = s.get(WorkflowRun, second[0]["run_id"]).request
+        assert "shorter, under 60 seconds" in req and "Previous version" in req
+        assert first[0]["run_id"] != second[0]["run_id"]
