@@ -60,7 +60,13 @@ aios todo                         # same list in the terminal;  aios todo done <
 
 Click an item to check it off. That completes the task in AIOS (criteria met, event, audit log) and
 unlocks anything that was waiting on it, so `priorities`, `status` and the agents see it as done.
-Click a checked item to undo. The list re-reads the database every 20 seconds; it never runs agents.
+Click a checked item to undo. The list re-reads the database every 20 seconds.
+
+The menu also shows **approvals waiting on you** (click to copy the `aios approve` command) and the
+**system's list**: plan tasks assigned to agents. Those run only when you click **▶ Run system tasks**
+(or `aios work run`): up to 3 at a time, each as the fitting workflow (research, draft, finance…),
+budget-checked like any command. A finished run completes its task with the run as evidence;
+`aios work reopen <id>` sends one back if the output wasn't good enough. `aios work` lists the queue.
 
 ## Studio: your voice and face (replaces ElevenLabs + HeyGen)
 

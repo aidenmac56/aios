@@ -227,6 +227,12 @@ def main(argv: list[str] | None = None) -> int:
     td.add_argument("text", nargs="?", help="add: what to do; done/undo: the to-do id (prefix is fine)")
     td.add_argument("--priority", type=int, choices=[1, 2, 3, 4, 5], default=2)
     td.add_argument("--due", help="YYYY-MM-DD")
+    wk = sub.add_parser("work", help="the system's own task queue: list it or run the ready tasks now")
+    wk.add_argument("action", choices=["list", "run", "reopen"], nargs="?", default="list")
+    wk.add_argument("task_id", nargs="?")
+    wk.add_argument("--max", type=int, default=3, help="run: at most this many tasks")
+    wk.add_argument("--budget", type=float, help="run: budget per task in USD")
+    wk.add_argument("--why", default="output not good enough")
     mb = sub.add_parser("menubar", help="Mac menu bar to-do list (top-right corner)")
     mb.add_argument("--install", action="store_true", help="also start it when you log in")
     mb.add_argument("--uninstall", action="store_true", help="stop starting it at login")
@@ -277,6 +283,8 @@ def _dispatch(args) -> int:
         return _studio(sm, args)
     if args.cmd == "todo":
         return _todo(sm, args)
+    if args.cmd == "work":
+        return _work(sm, args)
     if args.cmd == "menubar":
         from aios import menubar
 
@@ -552,6 +560,67 @@ def _dispatch(args) -> int:
             from aios.core.audit import verify_chain
 
             _p(verify_chain(s))
+    return 0
+
+
+def _work(sm, args) -> int:
+    from aios.modules import workqueue
+
+    if args.action == "reopen":
+        with sm() as s:
+            t = workqueue.reopen(s, _resolve_id(s, "tasks", args.task_id), args.why)
+            s.commit()
+            print(f"Back in the queue: {t.title}")
+        return 0
+    if args.action == "list":
+        with sm() as s:
+            rows = workqueue.queue(s)
+        if args.json:
+            _p(rows)
+            return 0
+        if not rows:
+            print("The system has nothing queued.")
+        for q in rows:
+            print(f"{q['id'][:8]}  {q['status']:<9} {q['agent']:<9} → {q['workflow']:<9} P{q['priority']}  {q['title'][:70]}"
+                  + (f"\n          last error: {q['error'][:120]}" if q["error"] and q["status"] == "FAILED" else ""))
+        return 0
+    from aios.config import get_settings
+
+    if not get_settings().has_llm_credentials:
+        print("Running system tasks needs ANTHROPIC_API_KEY in .env.", file=sys.stderr)
+        return 2
+    from aios.config import ROOT
+
+    lock = ROOT / "data" / "work.lock"
+    lock.parent.mkdir(exist_ok=True)
+    if lock.exists():
+        import os
+
+        try:
+            os.kill(int(lock.read_text()), 0)
+            print("System tasks are already running.", file=sys.stderr)
+            return 1
+        except (ValueError, ProcessLookupError, PermissionError):
+            pass  # stale lock from a run that died
+    import os
+
+    lock.write_text(str(os.getpid()))
+    try:
+        res = asyncio.run(workqueue.run_ready(sm, _engine(sm), max_tasks=args.max, budget_usd=args.budget,
+                                              on_task=lambda q: print(f"\n▶ {q['title']}  ({q['agent']} → {q['workflow']})",
+                                                                      file=sys.stderr)))
+    finally:
+        lock.unlink(missing_ok=True)
+    if args.json:
+        _p(res)
+        return 0
+    if not res:
+        print("Nothing ready for the system to do.")
+    for r in res:
+        line = f"{r['status']:<17} ${r['cost_usd']:.3f}  {r['task'][:70]}   (aios runs --id {r['run_id'][:8]})"
+        if r.get("approval_id"):
+            line += f"\n                  needs you: aios approve {r['approval_id']}"
+        print(line)
     return 0
 
 

@@ -17,7 +17,7 @@ AI Company OS for one founder (Aiden McCaffery). Read `docs/architecture.md` bef
 - Tests: `pytest` (uses `aios/llm/testing.py` ScriptedProvider; no network).
 - Run: `aios <command>`; API + dashboard: `aios serve`.
 - Studio (voice/face clone): `scripts/setup_studio.sh`, then `aios voice|avatar setup … --mine`, `aios voice say`, `aios video make`.
-- Founder to-dos: `aios todo`, Mac menu bar `aios menubar [--install]` (`aios/modules/todos.py`, `aios/menubar.py`).
+- Founder to-dos: `aios todo`; system queue (agent-owned tasks, founder-started): `aios work [run]` (`modules/workqueue.py`); Mac menu bar `aios menubar [--install]` (`aios/modules/todos.py`, `aios/menubar.py`).
 - Dashboard source: `web/` (Vite + React + TS) → `npm run build` writes `aios/web_dist/`.
 
 ## Where things are
