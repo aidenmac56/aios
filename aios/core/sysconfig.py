@@ -57,6 +57,14 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
         "Keyword rules for transaction categories. First match wins; 'transfer' is excluded from revenue/expense.",
     ),
     "finance.cogs_categories": ([], "Expense categories counted as cost of goods sold for gross margin."),
+    "media.dir": ("data/media", "Where studio files are stored (relative to the repo root). Git-ignored."),
+    "media.tts_model": ("turbo", "Chatterbox model: 'turbo' (English, fastest) or 'original'."),
+    "media.tts_device": ("auto", "Where speech is generated: auto (Apple GPU 'mps' if present), mps, cuda or cpu."),
+    "media.lipsync_model": ("bytedance/latentsync", "Replicate model used to lip-sync your face to the generated voice."),
+    "media.lipsync_usd_per_second": (0.000975, "Replicate's price per GPU-second for that model's hardware (Nvidia L40S, "
+                                               "replicate.com/pricing, checked 2026-10-09). Used to record the cost."),
+    "media.lipsync_projected_usd": (0.30, "Cost assumed before a lip-sync run, for the budget check."),
+    "media.lipsync_max_seconds": (180, "Longest audio the avatar step accepts in one run (cost guard)."),
     "founder.principles": ([],"Founder principles the planner checks against, e.g. {\"key\":\"preserve_cash\"}."),
 }
 

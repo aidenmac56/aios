@@ -47,6 +47,39 @@ metrics, the dashboard, memory, planning and audit logs all work without a key; 
 
 The same commands exist as Claude Code slash commands in `.claude/commands/` (`/ceo`, `/board`, `/research`, ...).
 
+## Studio: your voice and face (replaces ElevenLabs + HeyGen)
+
+Open-source models instead of subscriptions:
+
+| Instead of | Uses | Runs | Cost |
+|---|---|---|---|
+| ElevenLabs voice clone | [Chatterbox](https://github.com/resemble-ai/chatterbox) (MIT) | on your Mac | free |
+| HeyGen avatar | [LatentSync](https://github.com/bytedance/LatentSync) (Apache-2.0) | Replicate GPU (a MacBook can't run it) | ~$0.10 per short video, measured and recorded |
+
+One-time setup:
+
+```bash
+./scripts/setup_studio.sh                 # ffmpeg + Chatterbox in .venv-tts (free, ~2–3 GB)
+# avatar only: make a token at https://replicate.com/account/api-tokens, add a card, then put
+# REPLICATE_API_TOKEN=r8_... in .env
+aios voice setup ~/Desktop/me-talking.m4a --mine      # 10–30 s of you talking, quiet room
+aios avatar setup ~/Desktop/me-on-camera.mov --mine   # 15–60 s facing the camera, steady, good light
+aios doctor                                           # Studio lines should say ready
+```
+
+Use it:
+
+```bash
+aios voice say "Missed calls are costing you jobs."      # WAV in your voice
+aios voice say --from-run <draft run id> --item 2        # speak a script from `aios draft`
+aios video make --file script.txt                        # talking-head MP4 of you
+aios media list
+```
+
+Rules: only your own voice and face (`--mine`); agents can't use any of it; nothing is published.
+Outputs are DRAFT files marked synthetic. When you upload one to YouTube, answer **Yes** to
+"Altered or synthetic content". Chatterbox also adds an inaudible watermark to its audio.
+
 ## How it stays honest
 
 - **Memory has provenance.** EXPLICIT (you said it), CONFIRMED (3+ of your decisions show it), INFERRED, HYPOTHESIS, SUPERSEDED. Agents can only write INFERRED or HYPOTHESIS. Corrections supersede; nothing is deleted.

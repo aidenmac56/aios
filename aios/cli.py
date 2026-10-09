@@ -204,6 +204,26 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("runs")
     rp.add_argument("--id")
     sub.add_parser("verify-log", help="verify the audit log hash chain")
+    vp = sub.add_parser("voice", help="your cloned voice: setup from your own recording, then say a script")
+    vp.add_argument("action", choices=["setup", "say"])
+    vp.add_argument("source", nargs="?", help="setup: your recording; say: the text to speak")
+    vp.add_argument("--mine", action="store_true", help="confirm the recording is your own voice")
+    vp.add_argument("--start", type=float, default=0, help="setup: where the clean part starts (seconds)")
+    vp.add_argument("--seconds", type=float, default=20, help="setup: length of the reference clip (8–30)")
+    av = sub.add_parser("avatar", help="your face for avatar videos, from your own footage")
+    av.add_argument("action", choices=["setup"])
+    av.add_argument("source", help="a video of you talking to the camera (15–60 s)")
+    av.add_argument("--mine", action="store_true", help="confirm the footage is of you")
+    vd = sub.add_parser("video", help="make a talking-head video of you from a script (saved as a draft)")
+    vd.add_argument("action", choices=["make"])
+    vd.add_argument("text", nargs="?")
+    vd.add_argument("--audio", help="reuse audio from `aios voice say` instead of generating it again")
+    for p_ in (vp, vd):
+        p_.add_argument("--file", help="read the script from a file")
+        p_.add_argument("--from-run", help="use a draft from `aios draft` (run id)")
+        p_.add_argument("--item", type=int, help="which draft item (1-based)")
+    md = sub.add_parser("media", help="list voice/face references and generated media")
+    md.add_argument("action", choices=["list"], nargs="?", default="list")
     dr = sub.add_parser("doctor", help="check the installation; --live makes one tiny real model call + one search")
     dr.add_argument("--live", action="store_true")
     sv = sub.add_parser("serve")
@@ -245,6 +265,8 @@ def _dispatch(args) -> int:
         uvicorn.run("aios.api.app:app", host=s.host, port=args.port or s.port)
         return 0
     sm = init()
+    if args.cmd in ("voice", "avatar", "video", "media"):
+        return _studio(sm, args)
     if args.cmd == "init":
         print("Database ready. Agents synced.")
         return 0
@@ -253,8 +275,9 @@ def _dispatch(args) -> int:
 
         checks = doctor.run(sm, args.live)
         for c in checks:
-            print(f"{'PASS' if c.ok else 'FAIL'}  {c.name:<38} {c.detail}")
-            if not c.ok and c.fix:
+            label = ("INFO" if c.fix else "PASS") if c.optional else ("PASS" if c.ok else "FAIL")
+            print(f"{label}  {c.name:<38} {c.detail}")
+            if c.fix and (c.optional or not c.ok):
                 print(f"      → {c.fix}")
         if not args.live:
             print("\nRun `aios doctor --live` to make one tiny real model call and one web search (a few cents).")
@@ -508,6 +531,67 @@ def _dispatch(args) -> int:
 
             _p(verify_chain(s))
     return 0
+
+
+def _studio(sm, args) -> int:
+    from aios.modules import studio
+
+    def script() -> str:
+        if getattr(args, "from_run", None):
+            with sm() as s:
+                return studio.script_from_run(s, _resolve_id(s, "workflow_runs", args.from_run), args.item)
+        if getattr(args, "file", None):
+            return Path(args.file).expanduser().read_text(encoding="utf-8")
+        text = args.source if args.cmd == "voice" else args.text
+        if not text:
+            raise AIOSError("Give the script as text, --file script.txt, or --from-run <draft run id> --item N")
+        return text
+
+    def show(a: dict) -> None:
+        if args.json:
+            _p(a)
+            return
+        print(f"{a['kind']} {a['id']}  {a['status']}  {a['duration_s'] or 0:.1f}s  {a['engine']}"
+              + (f"  ${a['cost_usd']:.3f}" if a["cost_usd"] else ""))
+        print(f"  file: {a['path']}")
+        if a.get("disclosure"):
+            print(f"  ! {a['disclosure']}")
+
+    if args.cmd == "media":
+        with sm() as s:
+            rows = studio.list_assets(s)
+        if args.json:
+            _p(rows)
+        for a in [] if args.json else rows:
+            print(f"{a['id']}  {a['kind']:<15} {a['status']:<8} {a['duration_s'] or 0:>6.1f}s  "
+                  f"${a['cost_usd']:.3f}  {Path(a['path']).name}")
+        return 0
+    if args.action == "setup":
+        if not args.source:
+            raise AIOSError("Give the path to your recording.")
+        with sm() as s:
+            fn = studio.setup_voice if args.cmd == "voice" else studio.setup_avatar
+            kw = ({"confirm_own_voice": args.mine, "start_s": args.start, "seconds": args.seconds} if args.cmd == "voice"
+                  else {"confirm_own_face": args.mine})
+            a = fn(s, FOUNDER, Path(args.source), **kw)
+            s.commit()
+            show(studio.to_dict(a))
+        nxt = 'aios voice say "Testing my cloned voice."' if args.cmd == "voice" else 'aios video make "Quick test of my avatar."'
+        print(f"Ready. Try:  {nxt}")
+        return 0
+    if args.cmd == "voice":
+        print("Generating speech on this computer (first run downloads the model, ~1–2 GB)…", file=sys.stderr)
+        show(studio.speak(sm, FOUNDER, script()))
+        return 0
+    print("Generating voice, then lip-syncing on Replicate (usually 1–3 minutes)…", file=sys.stderr)
+    show(studio.make_video(sm, FOUNDER, "" if args.audio else script(),
+                           audio_asset_id=_resolve_id_sm(sm, "media_assets", args.audio) if args.audio else None))
+    return 0
+
+
+def _resolve_id_sm(sm, table: str, prefix: str) -> str:
+    with sm() as s:
+        return _resolve_id(s, table, prefix)
 
 
 def _resolve_id(session, table: str, prefix: str | None) -> str:

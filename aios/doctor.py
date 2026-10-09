@@ -23,6 +23,7 @@ class Check:
     ok: bool
     detail: str
     fix: str = ""
+    optional: bool = False  # reported, never fails the run
 
 
 class _Ping(BaseModel):
@@ -72,7 +73,42 @@ def offline(sm: sessionmaker) -> list[Check]:
                      "" if web.exists() else "cd web && npm install && npm run build"))
     out.append(Check("API token", True, "required" if s_.api_token else "not set (fine for localhost-only use)",
                      "" if s_.api_token else "Set AIOS_API_TOKEN if anyone else can reach this machine's port."))
+    out += studio_checks(sm)
     return out
+
+
+def studio_checks(sm: sessionmaker) -> list[Check]:
+    """Optional: the voice/avatar studio. Reported, never failing, since nothing else depends on it."""
+    import shutil
+    import subprocess
+    import sys
+
+    from aios.db.enums import MediaKind
+    from aios.modules import studio
+
+    s_ = get_settings()
+
+    def info(name: str, ready: bool, detail: str, fix: str) -> Check:
+        return Check(f"Studio: {name}", True, detail, "" if ready else fix, optional=True)
+
+    ff = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+    py = s_.tts_python or sys.executable
+    try:
+        has = subprocess.run([py, "-c", "import importlib.util as u,sys;sys.exit(0 if u.find_spec('chatterbox') else 1)"],
+                             capture_output=True, timeout=30).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        has = False
+    with sm() as s:
+        v, a = studio.active(s, MediaKind.VOICE_REFERENCE), studio.active(s, MediaKind.AVATAR_SOURCE)
+    return [
+        info("ffmpeg", ff, "installed" if ff else "not installed (needed for voice and avatar)", "brew install ffmpeg"),
+        info("Chatterbox (voice)", has, f"{'installed' if has else 'not installed'} in {py}",
+             "See README → Studio (one-time, free install)."),
+        info("Replicate token (avatar)", bool(s_.replicate_api_token), "set" if s_.replicate_api_token else "not set",
+             "Add REPLICATE_API_TOKEN=... to .env (only needed for avatar videos)."),
+        info("your voice / face", bool(v and a), f"voice {'ready' if v else 'not set up'}, face {'ready' if a else 'not set up'}",
+             "aios voice setup <recording> --mine   and   aios avatar setup <video> --mine"),
+    ]
 
 
 async def live(sm: sessionmaker) -> list[Check]:

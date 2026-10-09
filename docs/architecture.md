@@ -235,3 +235,14 @@ workflow_runs, agent_runs, model_usage, tool_calls, accounts, vendors, cost_cent
 import_batches, subscriptions, budgets, forecasts, research_reports, sources, claims, decisions,
 decision_options, approvals, audits, improvements, experiments, evaluations, metrics, events,
 audit_log, system_configuration.
+
+
+## Studio (voice and face clone)
+
+`aios/modules/studio.py`, table `media_assets` (migration 0002). Founder-only, command-started.
+References (`VOICE_REFERENCE`, `AVATAR_SOURCE`) come from the founder's own recordings with an explicit
+own-voice/own-face confirmation; one is ACTIVE per kind. Speech is generated locally by Chatterbox in a
+separate interpreter (`AIOS_TTS_PYTHON`, `aios/media/chatterbox_worker.py`, which imports nothing from
+aios). Lip-sync runs on Replicate (`aios/integrations/replicate.py`): budget-checked against the daily
+limit before the call, measured GPU seconds × `media.lipsync_usd_per_second` recorded in `model_usage`
+(provider `replicate`, workflow `studio`). Outputs are DRAFT and `synthetic=True`; nothing publishes.

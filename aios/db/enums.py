@@ -142,3 +142,17 @@ class ModelTier(StrEnum):
     FAST = "FAST"
     BALANCED = "BALANCED"
     DEEP = "DEEP"
+
+
+class MediaKind(StrEnum):
+    VOICE_REFERENCE = "VOICE_REFERENCE"  # the founder's own recording a voice is cloned from
+    AVATAR_SOURCE = "AVATAR_SOURCE"  # the founder's own on-camera footage the avatar is lip-synced onto
+    VOICE_AUDIO = "VOICE_AUDIO"  # generated speech
+    AVATAR_VIDEO = "AVATAR_VIDEO"  # generated talking-head video
+
+
+class MediaStatus(StrEnum):
+    ACTIVE = "ACTIVE"  # a reference/source currently in use
+    RETIRED = "RETIRED"  # a reference/source replaced by a newer one
+    DRAFT = "DRAFT"  # generated output waiting for the founder's review
+    FAILED = "FAILED"

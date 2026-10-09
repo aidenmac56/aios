@@ -16,6 +16,7 @@ AI Company OS for one founder (Aiden McCaffery). Read `docs/architecture.md` bef
 ## Commands
 - Tests: `pytest` (uses `aios/llm/testing.py` ScriptedProvider; no network).
 - Run: `aios <command>`; API + dashboard: `aios serve`.
+- Studio (voice/face clone): `scripts/setup_studio.sh`, then `aios voice|avatar setup … --mine`, `aios voice say`, `aios video make`.
 - Dashboard source: `web/` (Vite + React + TS) → `npm run build` writes `aios/web_dist/`.
 
 ## Where things are

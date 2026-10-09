@@ -34,6 +34,8 @@ from aios.db.enums import (
     DecisionStatus,
     ForecastKind,
     ImprovementStatus,
+    MediaKind,
+    MediaStatus,
     MemoryCategory,
     MemoryStatus,
     ModelTier,
@@ -592,6 +594,30 @@ class Evaluation(IdMixin, TimestampMixin, Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     experiment_id: Mapped[str | None] = mapped_column(ForeignKey("experiments.id"))
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+class MediaAsset(IdMixin, TimestampMixin, Base):
+    """Voice/face references and everything generated from them. Files live on disk; this is the record.
+
+    `synthetic` marks AI-generated media: publishing it on YouTube requires the "altered or synthetic
+    content" disclosure. Nothing in the system publishes media; the founder uploads it himself.
+    """
+
+    __tablename__ = "media_assets"
+    kind: Mapped[MediaKind] = mapped_column(enum_col(MediaKind), index=True)
+    status: Mapped[MediaStatus] = mapped_column(enum_col(MediaStatus), index=True)
+    path: Mapped[str] = mapped_column(Text)
+    sha256: Mapped[str] = mapped_column(String(64))
+    bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    duration_s: Mapped[float | None] = mapped_column(Float)
+    synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    engine: Mapped[str | None] = mapped_column(String(120))  # e.g. "chatterbox-turbo (local)", "replicate:bytedance/latentsync"
+    parent_ids: Mapped[list] = mapped_column(JSON, default=list)  # what it was made from
+    text: Mapped[str | None] = mapped_column(Text)  # the script that was spoken
+    cost_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    created_by: Mapped[str] = mapped_column(String(64), default="founder")
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
 
 
 class MetricDefinition(Base):
