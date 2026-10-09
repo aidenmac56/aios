@@ -109,3 +109,13 @@ async def test_trends_without_live_search_cap_confidence(sm, engine, monkeypatch
         config.get_settings.cache_clear()
     assert all(t["confidence"] != "HIGH" for t in res["trends"]["trends"])
     assert "no live web search" in res["trends"]["note"]
+
+
+async def test_draft_command_writes_content_not_projects(sm, engine):
+    from aios.db.models import Project
+
+    res = await engine.run("draft", "10 video topics for local service businesses")
+    assert res["status"] == "COMPLETED", res
+    assert res["draft"]["items"][1]["label"] == "Topic 1"
+    with sm() as s:
+        assert s.query(Project).count() == 0

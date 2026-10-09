@@ -58,7 +58,7 @@ class Engine:
             "decision": self.wf_decision, "research": self.wf_research, "market": self.wf_market,
             "cto": self.wf_cto, "finance": self.wf_finance, "plan": self.wf_plan, "priorities": self.wf_priorities,
             "audit": self.wf_audit, "improve": self.wf_improve, "learn": self.wf_learn,
-            "test": self.wf_test, "trends": self.wf_trends,
+            "test": self.wf_test, "trends": self.wf_trends, "draft": self.wf_draft,
         }
 
     @property
@@ -358,6 +358,8 @@ class Engine:
     async def wf_ceo(self, rc: RunCtx, request: str, options: dict) -> dict:
         context_text = self._context(request)
         intake = await self.intake(rc, request, context_text)
+        if intake.request_type == "DRAFT":
+            return await self.wf_draft(rc, request, options)
         if intake.request_type == "PLAN":
             return await self.wf_plan(rc, request, options)
         if intake.request_type == "AUDIT":
@@ -607,6 +609,20 @@ class Engine:
             out = improvements.record_test(s, s.get(Improvement, imp_id), plan, base, cand, exp_id)
             s.commit()
         return {"test": out}
+
+    async def wf_draft(self, rc: RunCtx, request: str, options: dict) -> dict:
+        """Write content for the founder (topics, scripts, positioning, emails). Drafts only; nothing is published."""
+        from aios.agents.schemas import DraftOutput
+
+        res = await run_agent(
+            rc, agent_id="cmo", key="draft", schema=DraftOutput, complexity="medium",
+            context_text=self._context(request, agent_id="cmo"),
+            objective=(f"Write this for the founder: {request}\n\nWrite the finished content, not advice about it. "
+                       "Match his voice from memory: brief, plain, direct, no hype, no AI-sounding phrases, no em dashes. "
+                       "This is a draft for his review; nothing gets published."))
+        if not res.ok:
+            raise AIOSError(f"Drafting failed: {res.error}")
+        return {"draft": {k: v for k, v in res.output.items() if not k.startswith("_")}}
 
     async def wf_trends(self, rc: RunCtx, request: str, options: dict) -> dict:
         """Trend intelligence: live research, then the CMO judges each trend on evidence, not popularity."""

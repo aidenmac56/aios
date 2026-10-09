@@ -1,5 +1,5 @@
 import { href } from "../router";
-import type { TestArm, TestResult, TrendReport } from "../types";
+import type { DraftOutput, TestArm, TestResult, TrendReport } from "../types";
 import { Badge } from "./Badge";
 import { Bullets, Callout, Card, KV } from "./Card";
 import { Table } from "./Table";
@@ -135,6 +135,29 @@ export function TrendsView({ report }: { report: TrendReport }) {
                 { key: "d", header: "Days", num: true, render: (e) => e.duration_days },
               ]}
             />
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+export function DraftView({ draft }: { draft: DraftOutput }) {
+  return (
+    <Card title="Drafts" sub="Written in your voice for your review. Nothing is published.">
+      <div className="stack-sm">
+        <p className="prose">{draft.summary}</p>
+        {draft.items.map((it) => (
+          <div key={it.label} className="trend">
+            <strong>{it.label}</strong>
+            <p className="prose" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{it.text}</p>
+            {it.why && <span className="small muted">{it.why}</span>}
+          </div>
+        ))}
+        {draft.recommended.length > 0 && (
+          <div>
+            <div className="subhead">Use first</div>
+            <Bullets items={draft.recommended} />
           </div>
         )}
       </div>

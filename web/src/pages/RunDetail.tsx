@@ -8,7 +8,7 @@ import { FindingView } from "../components/FindingView";
 import { FinanceSnapshot } from "../components/FinanceSnapshot";
 import { ImprovementCard } from "../components/ImprovementCard";
 import { Table } from "../components/Table";
-import { TestView, TrendsView } from "../components/TestAndTrends";
+import { DraftView, TestView, TrendsView } from "../components/TestAndTrends";
 import { dateTime, duration, humanize, parseDate, shortId, usd } from "../format";
 import { useApi } from "../hooks";
 import { href } from "../router";
@@ -341,6 +341,8 @@ function ResultSections({ res, run }: { res: RunResult; run: RunDetail }) {
           Completed work is kept. {res.remaining && res.remaining.length > 0 ? `Not finished: ${res.remaining.join(", ")}.` : ""} Raise budget.workflow_limit_usd in Settings or rerun with a narrower request.
         </Callout>
       )}
+
+      {res.draft && <DraftView draft={res.draft} />}
 
       {res.test && <TestView test={res.test} />}
 

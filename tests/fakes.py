@@ -158,6 +158,10 @@ DEFAULTS = {
         "experiments": [{"hypothesis": "Dentists reply to a missed-call pitch", "metric": "reply rate",
                          "success_threshold": ">=10%", "budget_usd": 0, "duration_days": 14}],
         "stance": "SUPPORT"},
+    "submit_draftoutput": lambda: {"summary": "Ten problem-first topics.", "items": [
+        {"label": "Positioning", "text": "AI that saves San Diego service businesses time, explained in plain English.", "why": "clear"},
+        {"label": "Topic 1", "text": "How to stop missing calls with an AI receptionist", "why": "searchable pain"}],
+        "recommended": ["Topic 1"], "assumptions": [], "stance": "NEUTRAL"},
     "submit_prioritiesoutput": lambda: {"summary": "Do the pilot.", "do_next": [], "kill_or_pause": [], "blocked": [],
                                         "decisions_waiting_on_founder": [], "contradictions": []},
 }

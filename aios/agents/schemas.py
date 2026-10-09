@@ -141,6 +141,20 @@ class GrowthFinding(AgentFinding):
     growth: GrowthPlan
 
 
+class DraftItem(BaseModel):
+    label: str = Field(description="Short name, e.g. 'Topic 3' or 'Positioning'.")
+    text: str = Field(description="The finished content itself, ready to use.")
+    why: str = Field(default="", description="One line on why this works for the target audience.")
+
+
+class DraftOutput(BaseModel):
+    summary: str = Field(description="One or two sentences on what was drafted and the angle taken.")
+    items: list[DraftItem] = Field(description="The drafted pieces, in the order the founder should read them.")
+    recommended: list[str] = Field(default_factory=list, description="Labels of the items you would use first, and why.")
+    assumptions: list[str] = Field(default_factory=list)
+    stance: Stance = "NEUTRAL"
+
+
 class Trend(BaseModel):
     name: str
     category: Literal["technology", "consumer", "business", "cultural", "economic", "startup", "AI", "software",
@@ -222,7 +236,9 @@ class ResearchFinding(BaseModel):
 
 class Intake(BaseModel):
     intent: str = Field(description="What the founder actually wants, in one sentence.")
-    request_type: Literal["DECISION", "ANALYSIS", "RESEARCH", "PLAN", "STATUS", "AUDIT", "FINANCE", "OPPORTUNITY"]
+    request_type: Literal["DECISION", "ANALYSIS", "RESEARCH", "PLAN", "DRAFT", "STATUS", "AUDIT", "FINANCE", "OPPORTUNITY"] = Field(
+        description="DRAFT = the founder wants content written (copy, scripts, topics, positioning, emails, posts). "
+                    "PLAN = he wants projects, milestones and tasks created.")
     decision_question: str = Field(description="The decision being supported, phrased as a question. Empty if none.")
     importance: Literal["normal", "high"]
     key_questions: list[str] = Field(default_factory=list, max_length=8)

@@ -9,6 +9,7 @@ export const COMMANDS: { id: string; hint: string; placeholder: string; needsTex
   { id: "board", hint: "CFO, CTO, CMO, Product and COO review a proposal in parallel", placeholder: "Offer a $497 AI audit to local service businesses", needsText: true },
   { id: "research", hint: "Sourced research with live search when available", placeholder: "How are small service businesses adopting AI receptionists in 2026?", needsText: true },
   { id: "market", hint: "Market research, positioning and customer problems", placeholder: "AI automation consulting for San Diego service businesses", needsText: true },
+  { id: "draft", hint: "Write content in your voice: topics, scripts, positioning, emails. Drafts only", placeholder: "10 YouTube topics for San Diego service business owners", needsText: true },
   { id: "trends", hint: "Which trends have real evidence and matter to this company, and which are just buzz", placeholder: "AI tools for local service businesses", needsText: false },
   { id: "opportunity", hint: "Full build / don't-build evaluation with a 12-point scorecard", placeholder: "An AI receptionist for dental offices", needsText: true },
   { id: "decision", hint: "Options, trade-offs and a recommendation that you approve or reject", placeholder: "Should I charge $497 or $997 for the AI audit?", needsText: true },

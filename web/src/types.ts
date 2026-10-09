@@ -559,7 +559,15 @@ export interface ApiErrorBody {
   [k: string]: unknown;
 }
 
+export interface DraftOutput {
+  summary: string;
+  items: { label: string; text: string; why: string }[];
+  recommended: string[];
+  assumptions: string[];
+}
+
 export interface RunResult {
+  draft?: DraftOutput;
   test?: TestResult;
   trends?: TrendReport;
   brief?: ExecutiveBrief;

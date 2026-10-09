@@ -19,7 +19,7 @@ from aios.core.actor import FOUNDER
 from aios.core.errors import AIOSError
 
 LLM_COMMANDS = ["ceo", "board", "research", "market", "opportunity", "decision", "cto", "plan", "priorities",
-                "audit", "improve", "trends"]
+                "audit", "improve", "trends", "draft"]
 
 
 def _p(obj) -> None:
@@ -71,6 +71,13 @@ def render(result: dict) -> str:
         for c in (r.get("claims") or [])[:10]:
             src = c.get("source_url") or (c.get("source") or {}).get("url") or "interpretation"
             out.append(f"  - {c['text']} [{src}]")
+    if result.get("draft"):
+        d = result["draft"]
+        out.append(f"\n{d.get('summary', '')}")
+        for it in d.get("items", []):
+            out.append(f"\n[{it['label']}]\n{it['text']}" + (f"\n  why: {it['why']}" if it.get("why") else ""))
+        if d.get("recommended"):
+            out.append("\nUse first: " + "; ".join(d["recommended"]))
     if result.get("trends"):
         tr = result["trends"]
         out.append(f"\nTrends: {tr.get('summary', '')}")
@@ -161,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
     op.add_argument("--actual", required=True)
     op.add_argument("--assessment", choices=["GOOD", "MIXED", "POOR"], required=True)
     op.add_argument("--why", required=True)
+    pj = sub.add_parser("project", help="list projects or cancel one")
+    pj.add_argument("action", choices=["list", "cancel"])
+    pj.add_argument("project_id", nargs="?")
+    pj.add_argument("--why", default="cancelled by founder")
     tp = sub.add_parser("tasks")
     tp.add_argument("--project")
     tk = sub.add_parser("task")
@@ -373,13 +384,34 @@ def _dispatch(args) -> int:
                                      assessment=args.assessment, why=args.why)
             s.commit()
             print("Outcome recorded. Future recommendations will use it.")
+        elif args.cmd == "project":
+            from aios.db.enums import ProjectStatus
+            from aios.db.models import Project, Task
+            from aios.core import audit as _audit
+            from sqlalchemy import select
+
+            if args.action == "list":
+                for p in s.execute(select(Project).order_by(Project.created_at)).scalars():
+                    n = s.execute(select(Task).where(Task.project_id == p.id)).scalars().all()
+                    done = sum(1 for t in n if t.status == TaskStatus.COMPLETED)
+                    print(f"{p.id}  {p.status.value:<10} {done}/{len(n)} tasks  {p.name}")
+            else:
+                p = s.get(Project, _resolve_id(s, "projects", args.project_id))
+                p.status = ProjectStatus.CANCELLED
+                for t in s.execute(select(Task).where(Task.project_id == p.id)).scalars():
+                    if t.status != TaskStatus.COMPLETED:
+                        t.status = TaskStatus.CANCELLED
+                _audit.record(s, who="founder", what="project.cancel", why=args.why, target_type="project", target_id=p.id)
+                s.commit()
+                print(f"Cancelled project '{p.name}' and its open tasks.")
         elif args.cmd == "tasks":
             from sqlalchemy import select
 
             from aios.db.enums import TaskKind
             from aios.db.models import Task
 
-            q = select(Task).where(Task.kind == TaskKind.PLAN).order_by(Task.priority, Task.created_at)
+            q = select(Task).where(Task.kind == TaskKind.PLAN, Task.status != TaskStatus.CANCELLED).order_by(
+                Task.priority, Task.created_at)
             if args.project:
                 q = q.where(Task.project_id == _resolve_id(s, "projects", args.project))
             for t in s.execute(q).scalars():
