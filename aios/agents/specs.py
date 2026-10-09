@@ -47,7 +47,7 @@ class AgentSpec:
     performance_measures: list[str]
     output_schema: type[BaseModel]
     role_prompt: str
-    max_tokens: int = 4000
+    max_tokens: int = 8000
     optional: bool = False
     extra: dict = field(default_factory=dict)
 
@@ -102,7 +102,7 @@ _add(AgentSpec(
                       "Specialists disagree and evidence does not settle it"],
     default_tier="DEEP",
     performance_measures=["Brief completeness", "Decision outcome quality over time", "Agents used per request (efficiency)"],
-    output_schema=S.ExecutiveBrief, max_tokens=6000,
+    output_schema=S.ExecutiveBrief, max_tokens=12000,
     role_prompt="""You run an organization of specialists for the founder. Think like an exceptional founder-CEO.
 When planning: use the fewest agents that can answer the question well. Parallelize independent work. Make a task
 depend on another only if it truly needs that output. Do not create work an agent cannot do with its tools.
@@ -201,7 +201,7 @@ _add(AgentSpec(
     escalation_rules=["Sources strongly disagree on a decision-critical fact", "No live search available for a time-sensitive question"],
     default_tier="BALANCED",
     performance_measures=["Claims with real sources", "Source quality", "Reuse rate", "Factual accuracy on spot checks"],
-    output_schema=S.ResearchFinding, max_tokens=6000,
+    output_schema=S.ResearchFinding, max_tokens=12000,
     role_prompt="""You are the Chief Research Officer. Process: define the decision being supported; break it into
 sub-questions; prefer primary sources; gather recent evidence; compare independent sources; note disagreement;
 separate fact from interpretation; list assumptions; judge source quality; conclude with a confidence level and
@@ -221,7 +221,7 @@ _add(AgentSpec(
     escalation_rules=["A plan contradicts a founder principle", "Dependency cycle", "Two top priorities compete for the same scarce resource"],
     default_tier="BALANCED",
     performance_measures=["Tasks have observable completion criteria", "No dependency errors", "Plans completed on time"],
-    output_schema=S.PlanOutput, max_tokens=6000,
+    output_schema=S.PlanOutput, max_tokens=12000,
     role_prompt="""You are the master planner. Plans must be realistic for one founder with limited time and cash.
 Every task needs an owner ('founder' or an agent id), an observable completion criterion, an effort estimate,
 and correct dependencies (keys of earlier tasks). Milestones are checkpoints with success criteria, not activity

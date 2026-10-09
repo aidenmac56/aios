@@ -184,6 +184,32 @@ def output_schema(model_cls: type[BaseModel]) -> dict:
 tool_schema = output_schema
 
 
+def _validate_lenient(schema: type[T], data: Any) -> T:
+    """Validate, but trim lists that are merely too long instead of failing.
+
+    The API cannot enforce list-length limits, so a model sometimes returns 12 points where 8 are allowed.
+    Dropping the extras loses nothing that matters; every other kind of error still fails validation.
+    """
+    for _ in range(10):
+        try:
+            return schema.model_validate(data)
+        except ValidationError as e:
+            errs = e.errors()
+            if not errs or any(x["type"] != "too_long" for x in errs):
+                raise
+            for x in errs:
+                node = data
+                for key in x["loc"][:-1]:
+                    node = node[key]
+                last = x["loc"][-1]
+                limit = (x.get("ctx") or {}).get("max_length")
+                if limit is None or not isinstance(node[last], list):
+                    raise
+                node[last] = node[last][:limit]
+                log.info("trimmed %s from %d to %d items", ".".join(map(str, x["loc"])), x["input"] and len(x["input"]), limit)
+    return schema.model_validate(data)
+
+
 async def structured(ctx: CallContext, *, model: str, system: str, prompt: str, schema: type[T],
                      purpose: str = "analysis", max_tokens: int = 4000) -> T:
     """Ask for JSON that must validate against `schema` (API structured outputs + Pydantic validation)."""
@@ -204,7 +230,7 @@ async def structured(ctx: CallContext, *, model: str, system: str, prompt: str, 
                 raise ValueError("the model declined this request")
             if not raw.strip():
                 raise ValueError(f"empty output (stop_reason={resp.stop_reason})")
-            return schema.model_validate(json.loads(raw))
+            return _validate_lenient(schema, json.loads(raw))
         except (ValidationError, ValueError) as e:  # JSONDecodeError is a ValueError
             err = str(e)[:2000]
             log.warning("malformed output from %s (%s): %s", model, purpose, err[:300])

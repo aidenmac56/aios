@@ -38,7 +38,7 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
     "orchestrator.max_parallel": (4, "Max agent tasks running at once."),
     "orchestrator.output_retries": (1, "Retries when output fails validation."),
     "orchestrator.api_retries": (2, "Retries on transient API errors."),
-    "orchestrator.max_output_tokens": (4000, "Default max output tokens per agent call."),
+    "orchestrator.max_output_tokens": (8000, "Default max output tokens per agent call."),
     "research.default_freshness_days": (30, "Days before a research report is flagged stale."),
     "research.max_searches": (6, "Max web searches per research call."),
     "memory.confirm_threshold": (3, "Supporting founder decisions needed to promote INFERRED to CONFIRMED."),

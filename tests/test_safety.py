@@ -133,3 +133,37 @@ async def test_malformed_output_is_retried_once_then_fails_visibly(sm):
     assert "validation" in res["error"]["message"].lower()
     structure_calls = [r for r in bad.requests if r.schema_name == "submit_researchfinding"]
     assert len(structure_calls) == 2  # one retry, then stop
+
+
+async def test_overlong_lists_are_trimmed_not_failed(sm):
+    from aios.llm.provider import ProviderRegistry
+    from aios.llm.testing import ScriptedProvider
+    from aios.orchestrator.engine import Engine
+    from tests.fakes import finding, responder
+
+    long = finding(key_points=[f"point {i}" for i in range(12)])
+    eng = Engine(sm, ProviderRegistry(providers={"anthropic": ScriptedProvider(responder({"submit_analyticsfinding": long}))}))
+    from aios.orchestrator.runner import RunCtx, run_agent
+    from aios.core.budget import BudgetGuard, Limits
+
+    with sm() as s:
+        guard = BudgetGuard(sm, Limits.load(s))
+    run_id = eng.create_run("ceo", "x")
+    rc = RunCtx(sm=sm, providers=eng.providers, guard=guard, run_id=run_id, command="ceo", request="x")
+    res = await run_agent(rc, agent_id="analytics", key="a", objective="o")
+    assert res.ok and len(res.output["key_points"]) == 8
+
+
+def test_code_seed_version_follows_code(sm):
+    from aios.agents import registry
+    from aios.db.models import AgentConfigVersion
+    from sqlalchemy import select
+
+    with sm() as s:
+        v1 = s.execute(select(AgentConfigVersion).where(AgentConfigVersion.agent_id == "cfo",
+                                                        AgentConfigVersion.version == 1)).scalar_one()
+        v1.config = {"max_tokens": 4000}
+        s.commit()
+        registry.sync_agents(s)
+        s.commit()
+        assert registry.active_config(s, "cfo").max_tokens == 8000

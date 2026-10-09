@@ -37,9 +37,14 @@ def sync_agents(session: Session) -> None:
         else:
             for k, v in fields.items():
                 setattr(row, k, v)
-        has_v1 = session.execute(select(AgentConfigVersion.id).where(
-            AgentConfigVersion.agent_id == spec.id, AgentConfigVersion.version == 1)).first()
-        if not has_v1:
+        v1 = session.execute(select(AgentConfigVersion).where(
+            AgentConfigVersion.agent_id == spec.id, AgentConfigVersion.version == 1)).scalar_one_or_none()
+        if v1 is not None and v1.created_by == "system":
+            # version 1 is the code seed: keep it equal to the code. Founder/agent versions (2+) are never touched.
+            if v1.system_prompt != spec.system_prompt or (v1.config or {}).get("max_tokens") != spec.max_tokens:
+                v1.system_prompt = spec.system_prompt
+                v1.config = {**(v1.config or {}), "max_tokens": spec.max_tokens}
+        if v1 is None:
             session.add(AgentConfigVersion(agent_id=spec.id, version=1, system_prompt=spec.system_prompt,
                                            config={"max_tokens": spec.max_tokens}, reason="initial version from code",
                                            created_by="system"))
