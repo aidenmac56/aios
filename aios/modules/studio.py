@@ -48,7 +48,13 @@ run_process = subprocess.run
 
 def _require_founder(actor: Actor) -> None:
     if not actor.is_founder:
-        raise PermissionDenied("Only the founder can create or use his voice and face clone.", actor=str(actor))
+        raise PermissionDenied("Only the founder can register his voice and face.", actor=str(actor))
+
+
+def _require_generator(actor: Actor) -> None:
+    """Founder, or autopilot (which he turned on). Agents never generate media of him."""
+    if not (actor.is_founder or str(actor) == "system:autopilot"):
+        raise PermissionDenied("Only the founder or his autopilot can generate media of him.", actor=str(actor))
 
 
 def _require_tool(name: str) -> str:
@@ -201,7 +207,7 @@ def script_from_run(session: Session, run_id: str, item: int | None) -> str:
 
 def speak(sm: sessionmaker, actor: Actor, script: str) -> dict:
     """Script → WAV in the founder's voice, generated on this machine. Free; takes a minute or two."""
-    _require_founder(actor)
+    _require_generator(actor)
     text = spoken_text(script)
     if len(text) < 2:
         raise ValidationFailed("The script is empty after removing stage directions.")
@@ -252,7 +258,7 @@ def _check_budget(session: Session, projected: int) -> None:
 
 def make_video(sm: sessionmaker, actor: Actor, script: str, *, client=None, audio_asset_id: str | None = None) -> dict:
     """Script → voice (local) → the founder's face lip-synced to it (Replicate). Saved as a DRAFT."""
-    _require_founder(actor)
+    _require_generator(actor)
     from aios.integrations.replicate import ReplicateClient
 
     with sm() as s:
@@ -293,7 +299,7 @@ def make_video(sm: sessionmaker, actor: Actor, script: str, *, client=None, audi
                                 "audio": client.upload(Path(audio["path"]), "audio/wav")})
     cost = usd_to_micros(pred.predict_time_s * rate)
     with sm() as s:
-        s.add(ModelUsage(workflow="studio", purpose="lipsync", provider="replicate", model=model,
+        s.add(ModelUsage(workflow="studio", agent_id=str(actor)[:64], purpose="lipsync", provider="replicate", model=model,
                          estimated_cost_micros=cost, latency_ms=int(pred.predict_time_s * 1000),
                          success=pred.status == "succeeded", error=pred.error,
                          pricing_version=f"replicate-l40s@{rate}/s"))

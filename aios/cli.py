@@ -280,6 +280,11 @@ def main(argv: list[str] | None = None) -> int:
     mb = sub.add_parser("menubar", help="Mac menu bar to-do list (top-right corner)")
     mb.add_argument("--install", action="store_true", help="also start it when you log in")
     mb.add_argument("--uninstall", action="store_true", help="stop starting it at login")
+    cl = sub.add_parser("clone", help="one recording sets up both your voice and your face clone")
+    cl.add_argument("action", choices=["setup", "status"])
+    cl.add_argument("source", nargs="?", help="a 30-60 s video of you talking to the camera")
+    cl.add_argument("--mine", action="store_true", help="confirm the video is of you, in your own voice")
+    cl.add_argument("--start", type=float, default=2, help="seconds to skip at the start (default 2)")
     md = sub.add_parser("media", help="list voice/face references and generated media")
     md.add_argument("action", choices=["list"], nargs="?", default="list")
     dr = sub.add_parser("doctor", help="check the installation; --live makes one tiny real model call + one search")
@@ -339,6 +344,8 @@ def _dispatch(args) -> int:
     sm = init()
     if args.cmd in ("voice", "avatar", "video", "media"):
         return _studio(sm, args)
+    if args.cmd == "clone":
+        return _clone(sm, args)
     if args.cmd == "todo":
         return _todo(sm, args)
     if args.cmd == "work":
@@ -916,6 +923,30 @@ def _todo(sm, args) -> int:
         print(f"[ ] {t['id'][:8]}  P{t['priority']}  {t['title']}" + (f"  · {t['project']}" if t["project"] else "") + flag)
     for t in done:
         print(f"[x] {t['id'][:8]}  {t['title']}")
+    return 0
+
+
+def _clone(sm, args) -> int:
+    from aios.db.enums import MediaKind
+    from aios.modules import studio
+
+    if args.action == "setup":
+        if not args.source:
+            raise AIOSError("Give the path to your video, e.g. aios clone setup ~/Desktop/me.mov --mine")
+        src = Path(args.source).expanduser()
+        with sm() as s:
+            v = studio.setup_voice(s, FOUNDER, src, confirm_own_voice=args.mine, start_s=args.start, seconds=20)
+            a = studio.setup_avatar(s, FOUNDER, src, confirm_own_face=args.mine)
+            s.commit()
+        print(f"Voice: {v.duration_s:.0f}s reference from {src.name}")
+        print(f"Face:  {a.duration_s:.0f}s of footage from {src.name}")
+        print('Test it (about $0.10 and a few minutes):  aios video make "Hey, it\'s Aiden. This is my AI clone."')
+        return 0
+    with sm() as s:
+        v, a = studio.active(s, MediaKind.VOICE_REFERENCE), studio.active(s, MediaKind.AVATAR_SOURCE)
+    print(f"Voice: {'ready' if v else 'not set up'}   Face: {'ready' if a else 'not set up'}")
+    if v and a:
+        print("Autopilot will turn each weekly script into a draft video of you.")
     return 0
 
 

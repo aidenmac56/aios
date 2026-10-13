@@ -139,6 +139,15 @@ Open-source models instead of subscriptions:
 | ElevenLabs voice clone | [Chatterbox](https://github.com/resemble-ai/chatterbox) (MIT) | on your Mac | free |
 | HeyGen avatar | [LatentSync](https://github.com/bytedance/LatentSync) (Apache-2.0) | Replicate GPU (a MacBook can't run it) | ~$0.10 per short video, measured and recorded |
 
+Quickest: one 30-60 s video of you talking to the camera sets up both:
+
+```bash
+aios clone setup ~/Desktop/me.mov --mine
+```
+
+With your voice and face set up, autopilot turns each weekly script into a finished draft video of you and
+puts "Upload this week's video" on your list (you upload it and mark Altered content: Yes).
+
 One-time setup:
 
 ```bash

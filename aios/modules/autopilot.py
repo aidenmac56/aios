@@ -58,10 +58,16 @@ def settings(session: Session) -> dict[str, Any]:
 
 
 def spent_today_usd(session: Session) -> float:
+    """Autopilot's own spend today: its workflow runs plus the videos it rendered."""
+    from aios.db.models import ModelUsage
+
     start = datetime.combine(utcnow().date(), time.min)
-    micros = session.execute(select(func.coalesce(func.sum(WorkflowRun.total_cost_micros), 0))
-                             .where(WorkflowRun.actor == str(AUTOPILOT), WorkflowRun.created_at >= start)).scalar()
-    return int(micros or 0) / 1e6
+    runs = session.execute(select(func.coalesce(func.sum(WorkflowRun.total_cost_micros), 0))
+                           .where(WorkflowRun.actor == str(AUTOPILOT), WorkflowRun.created_at >= start)).scalar()
+    media = session.execute(select(func.coalesce(func.sum(ModelUsage.estimated_cost_micros), 0))
+                            .where(ModelUsage.workflow == "studio", ModelUsage.agent_id == str(AUTOPILOT),
+                                   ModelUsage.created_at >= start)).scalar()
+    return (int(runs or 0) + int(media or 0)) / 1e6
 
 
 def last_cycle(session: Session) -> dict | None:
@@ -94,6 +100,62 @@ def _open_task_titled(session: Session, title: str) -> bool:
     return session.execute(select(Task.id).where(Task.kind == TaskKind.PLAN, Task.title == title,
                                                  Task.status.not_in((TaskStatus.COMPLETED, TaskStatus.CANCELLED)))
                            .limit(1)).first() is not None
+
+
+SCRIPT_PREFIX = "Draft this week's video script ("
+VIDEO_COST_GUARD_USD = 1.0  # don't start a render with less than this left under the cap
+
+
+def _script_text(run: WorkflowRun | None) -> str | None:
+    items = (((run.result or {}).get("draft") or {}).get("items") or []) if run else []
+    if not items:
+        return None
+    scripted = [i for i in items if "script" in i.get("label", "").lower()]
+    return max(scripted or items, key=lambda i: len(i.get("text", ""))).get("text")
+
+
+async def _make_videos(sm: sessionmaker, left) -> list[dict]:
+    """Weekly script → his voice (local) → his face lip-synced (Replicate) → draft MP4 + an upload to-do."""
+    import asyncio
+
+    from aios.db.enums import MediaKind
+    from aios.modules import studio, todos
+
+    with sm() as s:
+        if not sysconfig.get(s, "autopilot.make_videos"):
+            return []
+        ready = studio.active(s, MediaKind.VOICE_REFERENCE) and studio.active(s, MediaKind.AVATAR_SOURCE)
+        rows = s.execute(select(Task).where(Task.kind == TaskKind.PLAN, Task.status == TaskStatus.COMPLETED,
+                                            Task.title.startswith(SCRIPT_PREFIX))).scalars().all()
+        pending = [(t.id, t.title, (t.result or {}).get("run_id")) for t in rows
+                   if (t.result or {}).get("run_id") and "video" not in (t.result or {})]
+        if not ready:
+            return [{"skipped": "voice/face not set up (aios clone setup <video> --mine)"}] if pending else []
+        scripts = {tid: _script_text(s.get(WorkflowRun, rid)) for tid, _, rid in pending}
+    out = []
+    for task_id, title, run_id in pending:
+        if left() < VIDEO_COST_GUARD_USD:
+            out.append({"task": title, "skipped": "daily cap"})
+            break
+        week = title[len(SCRIPT_PREFIX):].split(")")[0]
+        try:  # studio is synchronous (local TTS + polling); keep the event loop free
+            v = await asyncio.to_thread(studio.make_video, sm, AUTOPILOT, scripts[task_id] or "")
+            res = {"ok": True, "asset_id": v["id"], "path": v["path"], "cost_usd": v["cost_usd"]}
+            step = f"Upload this week's video ({week}) — mark 'Altered content: Yes'"
+            note = (f"File: {v['path']}  ({v['duration_s']:.0f}s, made with your voice and face clone). Watch it first. "
+                    "On YouTube choose Altered or synthetic content: Yes. Script: aios runs --id " + run_id[:8])
+        except AIOSError as e:
+            res = {"ok": False, "error": e.message[:300]}
+            step = f"Video render failed ({week}): aios autopilot log"
+            note = e.message[:400]
+        with sm() as s:
+            t = s.get(Task, task_id)
+            t.result = {**(t.result or {}), "video": res}
+            if not _open_task_titled(s, step):
+                todos.add(s, AUTOPILOT, step, priority=1, note=note)
+            s.commit()
+        out.append({"task": title, **res})
+    return out
 
 
 NEWSLETTER_PREFIX = "Draft this week's newsletter issue ("
@@ -132,7 +194,7 @@ async def _prepare_newsletters(sm: sessionmaker, engine) -> list[dict]:
     return out
 
 
-_WEEKLY_PREFIXES = ("Send newsletter (", "Newsletter needs a fix (", "Review and film this week's video (", "Send this week's newsletter in beehiiv (",
+_WEEKLY_PREFIXES = ("Upload this week's video (", "Send newsletter (", "Newsletter needs a fix (", "Review and film this week's video (", "Send this week's newsletter in beehiiv (",
                     "Draft this week's video script (", "Draft this week's newsletter issue (")
 
 
@@ -194,8 +256,9 @@ async def run_cycle(sm: sessionmaker, engine, *, reason: str = "manual") -> dict
                    "matters most to San Diego local service business owners.")
             system_tasks = {
                 f"Draft this week's video script ({week})":
-                    ref + " Write a 3-4 minute script in the founder's voice with hook, demo idea and "
-                          "newsletter/booking CTA.",
+                    ref + " Write a script he can say in about 2.5 minutes (about 350 spoken words) in his voice: "
+                          "hook in the first 10 seconds, the one idea, one thing to try, then the free 20-minute call "
+                          "CTA. Put the full spoken script in ONE item labeled 'Script'. Stage directions in [brackets].",
                 f"Draft this week's newsletter issue ({week})":
                     ref + " Write The Weekly AI Brief: 3 short items (what happened, why it matters to an owner, "
                           "one thing to try this week) and a closing line offering the free 20-minute AI Quick Wins "
@@ -210,7 +273,14 @@ async def run_cycle(sm: sessionmaker, engine, *, reason: str = "manual") -> dict
                 for title, note in system_tasks.items():
                     if not _open_task_titled(s, title):
                         workqueue.add(s, title, agent="cmo", priority=1, actor=AUTOPILOT, note=note)
+                from aios.db.enums import MediaKind
+                from aios.modules import studio
+
+                clone_ready = (sysconfig.get(s, "autopilot.make_videos")
+                               and studio.active(s, MediaKind.VOICE_REFERENCE) and studio.active(s, MediaKind.AVATAR_SOURCE))
                 for title, note in founder_steps.items():
+                    if clone_ready and title.startswith("Review and film"):
+                        continue  # the clone makes this week's video; he gets an upload to-do instead
                     if not _open_task_titled(s, title):
                         todos.add(s, AUTOPILOT, title, priority=1, note=note)
                 summary["superseded"] = _supersede_old_weeks(s, week)
@@ -230,6 +300,9 @@ async def run_cycle(sm: sessionmaker, engine, *, reason: str = "manual") -> dict
 
     # 2b. finished newsletter drafts: check them and hand the founder a one-line send command
     summary["newsletters"] = await _prepare_newsletters(sm, engine)
+
+    # 2c. the clone: turn finished weekly scripts into videos of the founder (draft files; he uploads)
+    summary["videos"] = await _make_videos(sm, left)
 
     # 3. priorities (once a day is enough)
     if reason != "event" and left() >= MIN_TASK_BUDGET:

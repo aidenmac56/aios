@@ -125,3 +125,46 @@ def test_due_dates(sm):
 
         with pytest.raises(PermissionDenied):
             todos.set_due(s, agent("coo"), t.id, None)
+
+
+async def test_clone_turns_weekly_script_into_a_video(sm, engine, monkeypatch):
+    from aios.db.enums import MediaKind, MediaStatus
+    from aios.db.models import MediaAsset
+    from aios.modules import studio
+
+    monkeypatch.setattr(autopilot, "notify", lambda *a: None)
+    _on(sm)
+    made = []
+
+    def fake_make_video(sm_, actor, script, **kw):
+        made.append((str(actor), script))
+        return {"id": "vid1", "path": "/tmp/v.mp4", "duration_s": 150.0, "cost_usd": 0.4}
+
+    monkeypatch.setattr(studio, "make_video", fake_make_video)
+    with sm() as s:
+        for kind in (MediaKind.VOICE_REFERENCE, MediaKind.AVATAR_SOURCE):
+            s.add(MediaAsset(kind=kind, status=MediaStatus.ACTIVE, path="/x", sha256="0" * 64))
+        r = WorkflowRun(command="draft", request="x", result={"draft": {"items": [
+            {"label": "Hook options", "text": "short"}, {"label": "Script", "text": "Missed calls cost you jobs. " * 20}]}})
+        s.add(r)
+        s.flush()
+        t = workqueue.add(s, "Draft this week's video script (2026-10-12)", agent="cmo")
+        t.status, t.criteria_met, t.result = TaskStatus.COMPLETED, True, {"run_id": r.id}
+        s.commit()
+    res = await autopilot.run_cycle(sm, engine, reason="event")
+    assert made and made[0][0] == "system:autopilot" and made[0][1].startswith("Missed calls")
+    assert res["videos"][0]["ok"] is True
+    with sm() as s:
+        titles = [x["title"] for x in todos.open_todos(s)]
+        assert any(x.startswith("Upload this week's video (2026-10-12)") for x in titles)
+
+
+def test_agents_still_cannot_generate_media_of_him(sm):
+    import pytest
+
+    from aios.core.actor import agent
+    from aios.core.errors import PermissionDenied
+    from aios.modules import studio
+
+    with pytest.raises(PermissionDenied):
+        studio.speak(sm, agent("cmo"), "hello")

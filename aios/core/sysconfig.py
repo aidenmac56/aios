@@ -66,6 +66,8 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
                                          "unlocks system work."),
     "autopilot.daily_cap_usd": (5.0, "Most autopilot may spend on AI per UTC day. It stops when reached."),
     "autopilot.max_tasks_per_cycle": (5, "Most system tasks one cycle runs."),
+    "autopilot.make_videos": (True, "When your voice and face are set up, autopilot turns each weekly script into a "
+                                    "finished draft video of you (Chatterbox + LatentSync), within the daily cap."),
     "autopilot.daily_time": ("07:00", "Local time of the daily cycle."),
     "autopilot.weekly_trends_topic": ("AI news and tools that matter this week for San Diego local service "
                                       "businesses (plumbing, HVAC, roofing, cleaning, landscaping)",
@@ -89,7 +91,7 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
     "media.lipsync_usd_per_second": (0.000975, "Replicate's price per GPU-second for that model's hardware (Nvidia L40S, "
                                                "replicate.com/pricing, checked 2026-10-09). Used to record the cost."),
     "media.lipsync_projected_usd": (0.30, "Cost assumed before a lip-sync run, for the budget check."),
-    "media.lipsync_max_seconds": (180, "Longest audio the avatar step accepts in one run (cost guard)."),
+    "media.lipsync_max_seconds": (240, "Longest audio the avatar step accepts in one run (cost guard)."),
     "founder.principles": ([],"Founder principles the planner checks against, e.g. {\"key\":\"preserve_cash\"}."),
 }
 

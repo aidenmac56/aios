@@ -16,7 +16,7 @@ AI Company OS for one founder (Aiden McCaffery). Read `docs/architecture.md` bef
 ## Commands
 - Tests: `pytest` (uses `aios/llm/testing.py` ScriptedProvider; no network).
 - Run: `aios <command>`; API + dashboard: `aios serve`.
-- Studio (voice/face clone): `scripts/setup_studio.sh`, then `aios voice|avatar setup … --mine`, `aios voice say`, `aios video make`.
+- Studio (voice/face clone): `scripts/setup_studio.sh`, then `aios clone setup <video> --mine` (or `aios voice|avatar setup … --mine`); autopilot renders weekly videos (system:autopilot may generate, agents may not), `aios voice say`, `aios video make`.
 - Multi-model: providers in `aios/llm/providers_extra.py` (prefix routing in `ProviderRegistry`), Jev router `aios/llm/jev.py`, orchestration `aios/orchestrator/multi.py`; `aios models`, `aios multi`, `aios mac`.
 - MCP server for the Claude app: `aios mcp [--install]` (`aios/mcp_server.py`); no approve/config tools by design.
 - Publishing: `aios publish newsletter --run` (founder only, `aios/modules/publisher.py`, Kit); autopilot only runs `preflight`. Links: `aios links`.
