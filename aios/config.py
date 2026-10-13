@@ -34,6 +34,7 @@ class Settings(BaseModel):
     muse_api_key: str | None = None  # Meta Model API (Muse Spark); MODEL_API_KEY or MUSE_API_KEY
     typesafe_api_key: str | None = None  # Jev (routing decisions)
     ollama_url: str | None = None  # local models; default http://127.0.0.1:11434/v1 when AIOS_OLLAMA=1
+    kit_api_key: str | None = None  # newsletter sending (Kit v4 API), founder-initiated
     replicate_api_token: str | None = None  # studio: cloud GPU for avatar lip-sync
     tts_python: str | None = None  # studio: Python interpreter that has chatterbox-tts installed
     host: str = "127.0.0.1"
@@ -61,6 +62,7 @@ def get_settings() -> Settings:
         typesafe_api_key=env.get("TYPESAFE_API_KEY") or None,
         ollama_url=(env.get("AIOS_OLLAMA_URL") or ("http://127.0.0.1:11434/v1" if env.get("AIOS_OLLAMA") in ("1", "true")
                                                    else None)),
+        kit_api_key=env.get("KIT_API_KEY") or None,
         replicate_api_token=env.get("REPLICATE_API_TOKEN") or None,
         tts_python=env.get("AIOS_TTS_PYTHON") or None,
         host=env.get("AIOS_HOST", "127.0.0.1"),

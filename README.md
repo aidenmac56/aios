@@ -47,6 +47,18 @@ metrics, the dashboard, memory, planning and audit logs all work without a key; 
 
 The same commands exist as Claude Code slash commands in `.claude/commands/` (`/ceo`, `/board`, `/research`, ...).
 
+## Newsletter: the system drafts and checks, you send (Kit)
+
+```bash
+aios links set booking https://cal.com/...        # used in every draft and send
+aios publish newsletter --run <id>                # the exact command appears on your to-do list each week
+```
+
+Autopilot writes the weekly issue from that week's trends, checks it (no placeholders, booking link present,
+a model review for unverified claims) and puts "Send newsletter (week): aios publish newsletter --run …" on
+your list. Sending re-runs the checks, schedules the Kit broadcast 5 minutes out (cancel in Kit if needed)
+and is audited. Agents and autopilot never send. Needs `KIT_API_KEY` in .env (Kit's free plan includes the API).
+
 ## Autopilot: AIOS works on its own
 
 ```bash

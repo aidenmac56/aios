@@ -256,6 +256,15 @@ def main(argv: list[str] | None = None) -> int:
     ap_.add_argument("--cap", type=float, default=None, help="on: max AI spend per day in USD (default 5)")
     ap_.add_argument("--no-react", action="store_true", help="on: daily only, don't react to events")
     ap_.add_argument("--reason", default="manual", choices=["manual", "daily", "event"])
+    pb = sub.add_parser("publish", help="send a drafted newsletter issue via Kit (you run this; it re-checks first)")
+    pb.add_argument("channel", choices=["newsletter"])
+    pb.add_argument("--run", required=True, help="the draft run id (from your to-do list)")
+    pb.add_argument("--in", dest="minutes", type=float, default=5, help="minutes until it sends (default 5)")
+    pb.add_argument("--force", action="store_true", help="send even if the review flagged something")
+    lk = sub.add_parser("links", help="your public links (booking, newsletter, youtube) used in drafts and sends")
+    lk.add_argument("action", choices=["list", "set", "remove"], nargs="?", default="list")
+    lk.add_argument("name", nargs="?")
+    lk.add_argument("url", nargs="?")
     sub.add_parser("models", help="which AI models/providers are connected, what they cost, how to connect more")
     mc = sub.add_parser("mac", help="macOS Shortcuts AIOS may run (founder-approved, audited)")
     mc.add_argument("action", choices=["list", "allow", "disallow"], nargs="?", default="list")
@@ -336,6 +345,44 @@ def _dispatch(args) -> int:
         return _work(sm, args)
     if args.cmd == "models":
         return _models(sm, args)
+    if args.cmd == "publish":
+        from aios.llm.provider import build_registry
+        from aios.modules import publisher
+
+        with sm() as s:
+            run_id = _resolve_id(s, "workflow_runs", args.run)
+        res = asyncio.run(publisher.publish_newsletter(sm, build_registry(), run_id, actor=FOUNDER,
+                                                       send_in_minutes=args.minutes, force=args.force))
+        if res["sent"]:
+            print(f"Scheduled: \"{res['subject']}\" sends at {res['send_at']} (Kit broadcast {res['broadcast_id']}). "
+                  "Cancel it in Kit before then if needed.")
+            return 0
+        print("Not sent. " + "; ".join(res["problems"]))
+        print(f"Read it: aios runs --id {run_id[:8]}   Send anyway: aios publish newsletter --run {run_id[:8]} --force")
+        return 1
+    if args.cmd == "links":
+        from aios.core import sysconfig
+
+        with sm() as s:
+            cur = dict(sysconfig.get(s, "links") or {})
+            if args.action == "list":
+                for k, v in cur.items():
+                    print(f"{k:<12} {v}")
+                if not cur:
+                    print("No links yet: aios links set booking https://cal.com/...")
+                return 0
+            if not args.name:
+                raise AIOSError("Give the link name (e.g. booking, newsletter, youtube).")
+            if args.action == "set":
+                if not (args.url or "").startswith(("http://", "https://")):
+                    raise AIOSError("Give a full URL starting with https://")
+                cur[args.name] = args.url
+            else:
+                cur.pop(args.name, None)
+            sysconfig.set_value(s, "links", cur, FOUNDER, f"founder {args.action} link {args.name}")
+            s.commit()
+        print(f"Links: {', '.join(f'{k}={v}' for k, v in cur.items()) or 'none'}")
+        return 0
     if args.cmd == "autopilot":
         return _autopilot(sm, args)
     if args.cmd == "mac":

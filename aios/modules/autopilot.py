@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from aios.config import ROOT
 from aios.core import audit, events, sysconfig
 from aios.core.actor import Actor
+from aios.core.errors import AIOSError
 from aios.core.util import utcnow
 from aios.db.enums import TaskKind, TaskStatus
 from aios.db.models import EventRecord, Task, WorkflowRun
@@ -95,7 +96,43 @@ def _open_task_titled(session: Session, title: str) -> bool:
                            .limit(1)).first() is not None
 
 
-_WEEKLY_PREFIXES = ("Review and film this week's video (", "Send this week's newsletter in beehiiv (",
+NEWSLETTER_PREFIX = "Draft this week's newsletter issue ("
+
+
+async def _prepare_newsletters(sm: sessionmaker, engine) -> list[dict]:
+    """Preflight only (no sending): the founder sends with the command it puts on his list."""
+    from aios.modules import publisher, todos
+
+    with sm() as s:
+        rows = s.execute(select(Task).where(Task.kind == TaskKind.PLAN, Task.status == TaskStatus.COMPLETED,
+                                            Task.title.startswith(NEWSLETTER_PREFIX))).scalars().all()
+        pending = [(t.id, t.title, (t.result or {}).get("run_id")) for t in rows
+                   if (t.result or {}).get("run_id") and "prepared" not in (t.result or {})]
+    out = []
+    for task_id, title, run_id in pending:
+        week = title[len(NEWSLETTER_PREFIX):].split(")")[0]
+        try:
+            pre = await publisher.preflight(sm, engine.providers, run_id)
+        except AIOSError as e:
+            pre = {"ok": False, "problems": [e.message[:200]]}
+        if pre["ok"]:
+            step = f"Send newsletter ({week}): aios publish newsletter --run {run_id[:8]}"
+            note = f"Checked and ready. Subject: {pre['issue']['subject']}. Read first: aios runs --id {run_id[:8]}"
+        else:
+            step = f"Newsletter needs a fix ({week}): aios runs --id {run_id[:8]}"
+            note = "Problems: " + "; ".join(pre["problems"])[:500] + (
+                f". Then: aios work reopen <task> --why '...' or send anyway: aios publish newsletter --run {run_id[:8]} --force")
+        with sm() as s:
+            t = s.get(Task, task_id)
+            t.result = {**(t.result or {}), "prepared": {"ok": pre["ok"], "problems": pre["problems"]}}
+            if not _open_task_titled(s, step):
+                todos.add(s, AUTOPILOT, step, priority=1, note=note)
+            s.commit()
+        out.append({"task": title, "ready": pre["ok"], "problems": pre["problems"]})
+    return out
+
+
+_WEEKLY_PREFIXES = ("Send newsletter (", "Newsletter needs a fix (", "Review and film this week's video (", "Send this week's newsletter in beehiiv (",
                     "Draft this week's video script (", "Draft this week's newsletter issue (")
 
 
@@ -106,7 +143,7 @@ def _supersede_old_weeks(session: Session, week: str) -> int:
     rows = session.execute(select(Task).where(Task.kind == TaskKind.PLAN, Task.creator == str(AUTOPILOT),
                                               Task.status.in_((TaskStatus.READY, TaskStatus.FAILED)))).scalars()
     for t in rows:
-        if t.title.startswith(_WEEKLY_PREFIXES) and not t.title.endswith(f"({week})"):
+        if t.title.startswith(_WEEKLY_PREFIXES) and f"({week})" not in t.title:
             t.status = TaskStatus.CANCELLED
             t.result = {**(t.result or {}), "note": f"superseded by week {week}"}
             audit.record(session, who=str(AUTOPILOT), what="task.supersede", why=f"replaced by week {week}",
@@ -149,6 +186,10 @@ async def run_cycle(sm: sessionmaker, engine, *, reason: str = "manual") -> dict
         summary["trends_run"] = res["run_id"]
         if res["status"] == "COMPLETED":
             week = _week_start(date.today()).isoformat()
+            from aios.modules import publisher
+
+            with sm() as s:
+                booking = publisher.links(s).get("booking", "[booking link]")
             ref = (f"Use the trends report from run {res['run_id']} (aios runs --id {res['run_id'][:8]}). Pick what "
                    "matters most to San Diego local service business owners.")
             system_tasks = {
@@ -156,13 +197,12 @@ async def run_cycle(sm: sessionmaker, engine, *, reason: str = "manual") -> dict
                     ref + " Write a 3-4 minute script in the founder's voice with hook, demo idea and "
                           "newsletter/booking CTA.",
                 f"Draft this week's newsletter issue ({week})":
-                    ref + " Write The Weekly AI Brief: subject line, preview text, 3 short items (what happened, "
-                          "why it matters to an owner, one thing to try this week), and a closing line offering the "
-                          "free 20-minute AI Quick Wins call. Under 400 words. Plain, no hype.",
+                    ref + " Write The Weekly AI Brief: 3 short items (what happened, why it matters to an owner, "
+                          "one thing to try this week) and a closing line offering the free 20-minute AI Quick Wins "
+                          f"call with this exact link: {booking}. Under 400 words. Plain, no hype. Return exactly three "
+                          "items labeled 'Subject line', 'Preview text' and 'Issue body'. No placeholders in brackets.",
             }
             founder_steps = {
-                f"Send this week's newsletter in beehiiv ({week})":
-                    "Paste the drafted issue into beehiiv (Newsletter → New post) and send. Read it with aios work.",
                 f"Review and film this week's video ({week})":
                     "Autopilot drafted the script; read it with aios work / aios runs.",
             }
@@ -187,6 +227,9 @@ async def run_cycle(sm: sessionmaker, engine, *, reason: str = "manual") -> dict
         summary["tasks"] = [{k: d[k] for k in ("task", "status", "cost_usd", "run_id")} for d in done]
         if len(done) < min(n_ready, st["max_tasks"]):
             summary["notes"].append("stopped early: daily cap reached")
+
+    # 2b. finished newsletter drafts: check them and hand the founder a one-line send command
+    summary["newsletters"] = await _prepare_newsletters(sm, engine)
 
     # 3. priorities (once a day is enough)
     if reason != "event" and left() >= MIN_TASK_BUDGET:

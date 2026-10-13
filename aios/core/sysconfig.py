@@ -59,6 +59,8 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
         "Keyword rules for transaction categories. First match wins; 'transfer' is excluded from revenue/expense.",
     ),
     "finance.cogs_categories": ([], "Expense categories counted as cost of goods sold for gross margin."),
+    "links": ({}, "Founder's public links, used in drafts and substituted into anything published, e.g. "
+                  "{\"booking\": \"https://...\", \"newsletter\": \"https://...\"}. Set with aios links set."),
     "autopilot.enabled": (False, "Founder switch: AIOS runs a cycle every morning (aios autopilot on/off)."),
     "autopilot.react_to_events": (False, "Also run a cycle right after the founder finishes something that "
                                          "unlocks system work."),

@@ -47,6 +47,12 @@ def build(session: Session, request: str, *, agent_id: str | None = None, includ
     parts: list[str] = []
     mems = memory.retrieve(session, request, limit=25)
     parts.append("FOUNDER & COMPANY MEMORY (status | provenance):\n" + memory.format_for_prompt(mems))
+    from aios.core import sysconfig
+
+    lk = sysconfig.get(session, "links") or {}
+    if lk:
+        parts.append("FOUNDER'S LINKS (use these exact URLs; never write placeholders):\n"
+                     + "\n".join(f"- {k}: {v}" for k, v in lk.items()))
     companies = session.execute(select(Company)).scalars().all()
     if companies:
         parts.append("COMPANIES:\n" + "\n".join(
