@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "aios": {
+      "command": "aios",
+      "args": ["mcp"]
+    },
+    "higgsfield": {
+      "type": "http",
+      "url": "https://mcp.higgsfield.ai/mcp"
+    }
+  }
+}
