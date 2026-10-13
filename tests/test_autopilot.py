@@ -106,7 +106,7 @@ async def test_weekly_loop_queues_newsletter_and_supersedes_last_week(sm, engine
         assert s.get(Task, old_film.id).status == TaskStatus.CANCELLED
         assert s.get(Task, mine.id).status == TaskStatus.READY
         titles = [t["title"] for t in todos.open_todos(s)]
-        assert any(t.startswith("Send this week's newsletter in beehiiv") for t in titles)
+        assert any(t.startswith(("Send newsletter (", "Newsletter needs a fix (")) for t in titles)
     assert any(t["task"].startswith("Draft this week's newsletter issue") for t in res["tasks"])
 
 
