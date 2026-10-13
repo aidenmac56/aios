@@ -171,7 +171,12 @@ def run() -> None:
 
         def _item(self, t, checked: bool, dim: bool = False):
             label = ("   " if dim else "") + f"P{t['priority']}  {_short(t['title'])}"
-            if t.get("project"):
+            if t.get("due_date"):
+                from datetime import date
+
+                d = date.fromisoformat(t["due_date"])
+                label += f"  · {'OVERDUE ' if d < date.today() else 'due '}{d:%b %-d}"
+            elif t.get("project"):
                 label += f"  · {_short(t['project'], 24)}"
             item = rumps.MenuItem(label, callback=None if dim else self.toggle)
             item.state = 1 if checked else 0

@@ -244,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         p_.add_argument("--from-run", help="use a draft from `aios draft` (run id)")
         p_.add_argument("--item", type=int, help="which draft item (1-based)")
     td = sub.add_parser("todo", help="your to-do list: things only you can do outside the system")
-    td.add_argument("action", choices=["list", "add", "done", "undo"], nargs="?", default="list")
+    td.add_argument("action", choices=["list", "add", "done", "undo", "due"], nargs="?", default="list")
     td.add_argument("text", nargs="?", help="add: what to do; done/undo: the to-do id (prefix is fine)")
     td.add_argument("--priority", type=int, choices=[1, 2, 3, 4, 5], default=2)
     td.add_argument("--due", help="YYYY-MM-DD")
@@ -840,6 +840,12 @@ def _todo(sm, args) -> int:
                           due=date.fromisoformat(args.due) if args.due else None)
             s.commit()
             print(f"Added [{t.id[:8]}] {t.title}")
+            return 0
+        if args.action == "due":
+            t = todos.set_due(s, FOUNDER, _resolve_id(s, "tasks", args.text),
+                              date.fromisoformat(args.due) if args.due else None)
+            s.commit()
+            print(f"{t.title}: due {t.due_date or 'cleared'}")
             return 0
         if args.action in ("done", "undo"):
             tid = _resolve_id(s, "tasks", args.text)

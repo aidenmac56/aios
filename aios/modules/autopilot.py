@@ -95,6 +95,26 @@ def _open_task_titled(session: Session, title: str) -> bool:
                            .limit(1)).first() is not None
 
 
+_WEEKLY_PREFIXES = ("Review and film this week's video (", "Send this week's newsletter in beehiiv (",
+                    "Draft this week's video script (", "Draft this week's newsletter issue (")
+
+
+def _supersede_old_weeks(session: Session, week: str) -> int:
+    """Last week's untouched weekly items are replaced by this week's, so they don't pile up.
+    Only items autopilot created and nobody started; anything in progress is left alone."""
+    n = 0
+    rows = session.execute(select(Task).where(Task.kind == TaskKind.PLAN, Task.creator == str(AUTOPILOT),
+                                              Task.status.in_((TaskStatus.READY, TaskStatus.FAILED)))).scalars()
+    for t in rows:
+        if t.title.startswith(_WEEKLY_PREFIXES) and not t.title.endswith(f"({week})"):
+            t.status = TaskStatus.CANCELLED
+            t.result = {**(t.result or {}), "note": f"superseded by week {week}"}
+            audit.record(session, who=str(AUTOPILOT), what="task.supersede", why=f"replaced by week {week}",
+                         target_type="task", target_id=t.id)
+            n += 1
+    return n
+
+
 async def run_cycle(sm: sessionmaker, engine, *, reason: str = "manual") -> dict:
     from aios.modules import todos, workqueue
 
@@ -129,18 +149,31 @@ async def run_cycle(sm: sessionmaker, engine, *, reason: str = "manual") -> dict
         summary["trends_run"] = res["run_id"]
         if res["status"] == "COMPLETED":
             week = _week_start(date.today()).isoformat()
-            script = f"Draft this week's video script ({week})"
-            film = f"Review and film this week's video ({week})"
+            ref = (f"Use the trends report from run {res['run_id']} (aios runs --id {res['run_id'][:8]}). Pick what "
+                   "matters most to San Diego local service business owners.")
+            system_tasks = {
+                f"Draft this week's video script ({week})":
+                    ref + " Write a 3-4 minute script in the founder's voice with hook, demo idea and "
+                          "newsletter/booking CTA.",
+                f"Draft this week's newsletter issue ({week})":
+                    ref + " Write The Weekly AI Brief: subject line, preview text, 3 short items (what happened, "
+                          "why it matters to an owner, one thing to try this week), and a closing line offering the "
+                          "free 20-minute AI Quick Wins call. Under 400 words. Plain, no hype.",
+            }
+            founder_steps = {
+                f"Send this week's newsletter in beehiiv ({week})":
+                    "Paste the drafted issue into beehiiv (Newsletter → New post) and send. Read it with aios work.",
+                f"Review and film this week's video ({week})":
+                    "Autopilot drafted the script; read it with aios work / aios runs.",
+            }
             with sm() as s:
-                if not _open_task_titled(s, script):
-                    workqueue.add(s, script, agent="cmo", priority=1, actor=AUTOPILOT,
-                                  note=(f"Use the trends report from run {res['run_id']} (aios runs --id "
-                                        f"{res['run_id'][:8]}). Pick the one trend most useful to San Diego local "
-                                        "service business owners. Write a 3-4 minute script in the founder's "
-                                        "voice with hook, demo idea and newsletter/booking CTA."))
-                if not _open_task_titled(s, film):
-                    todos.add(s, AUTOPILOT, film, priority=1,
-                              note="Autopilot drafted the script; read it with aios work / aios runs.")
+                for title, note in system_tasks.items():
+                    if not _open_task_titled(s, title):
+                        workqueue.add(s, title, agent="cmo", priority=1, actor=AUTOPILOT, note=note)
+                for title, note in founder_steps.items():
+                    if not _open_task_titled(s, title):
+                        todos.add(s, AUTOPILOT, title, priority=1, note=note)
+                summary["superseded"] = _supersede_old_weeks(s, week)
                 s.commit()
         else:
             summary["notes"].append(f"trends run {res['status']}: {(res.get('error') or {}).get('message', '')[:120]}")

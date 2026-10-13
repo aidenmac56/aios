@@ -91,3 +91,37 @@ def test_react_only_when_enabled_and_work_is_ready(sm, monkeypatch):
 
 def test_autopilot_actor_can_never_publish_approve_or_reconfigure():
     assert all(not has(autopilot.AUTOPILOT, p) for p in NEVER_FOR_AGENTS)
+
+
+async def test_weekly_loop_queues_newsletter_and_supersedes_last_week(sm, engine, monkeypatch):
+    monkeypatch.setattr(autopilot, "notify", lambda *a: None)
+    _on(sm)
+    with sm() as s:
+        old_film = todos.add(s, autopilot.AUTOPILOT, "Review and film this week's video (2000-01-03)")
+        mine = todos.add(s, FOUNDER, "Review and film this week's video (2000-01-03)")  # founder's own: untouched
+        s.commit()
+    res = await autopilot.run_cycle(sm, engine, reason="daily")
+    assert res["superseded"] == 1
+    with sm() as s:
+        assert s.get(Task, old_film.id).status == TaskStatus.CANCELLED
+        assert s.get(Task, mine.id).status == TaskStatus.READY
+        titles = [t["title"] for t in todos.open_todos(s)]
+        assert any(t.startswith("Send this week's newsletter in beehiiv") for t in titles)
+    assert any(t["task"].startswith("Draft this week's newsletter issue") for t in res["tasks"])
+
+
+def test_due_dates(sm):
+    from datetime import date
+
+    from aios.core.actor import agent
+    from aios.core.errors import PermissionDenied
+
+    with sm() as s:
+        t = todos.add(s, FOUNDER, "Cancel Upfirst")
+        todos.set_due(s, FOUNDER, t.id, date(2026, 10, 20))
+        s.commit()
+        assert todos.open_todos(s)[0]["due_date"] == "2026-10-20"
+        import pytest
+
+        with pytest.raises(PermissionDenied):
+            todos.set_due(s, agent("coo"), t.id, None)

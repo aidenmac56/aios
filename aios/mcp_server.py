@@ -70,12 +70,24 @@ def build(sm=None):
         with sm() as s:
             return _json({"open": todos.open_todos(s), "done_today": todos.recently_done(s)})
 
-    @server.tool(description="Add a to-do to Aiden's list. priority 1 (highest) to 5.")
-    def add_todo(title: str, priority: int = 2) -> str:
+    @server.tool(description="Add a to-do to Aiden's list. priority 1 (highest) to 5. due: optional YYYY-MM-DD.")
+    def add_todo(title: str, priority: int = 2, due: str = "") -> str:
+        from datetime import date
+
         with sm() as s:
-            t = todos.add(s, FOUNDER, title, priority=max(1, min(5, priority)))
+            t = todos.add(s, FOUNDER, title, priority=max(1, min(5, priority)),
+                          due=date.fromisoformat(due) if due else None)
             s.commit()
-            return f"Added {t.id[:8]}: {t.title}"
+            return f"Added {t.id[:8]}: {t.title}" + (f" (due {t.due_date})" if t.due_date else "")
+
+    @server.tool(description="Set or clear (empty string) a to-do's due date, YYYY-MM-DD.")
+    def set_todo_due(todo_id: str, due: str = "") -> str:
+        from datetime import date
+
+        with sm() as s:
+            t = todos.set_due(s, FOUNDER, resolve("tasks", todo_id), date.fromisoformat(due) if due else None)
+            s.commit()
+            return f"{t.title}: due {t.due_date or 'cleared'}"
 
     @server.tool(description="Check off one of Aiden's to-dos (id or 8-char prefix). Only when he says it's done.")
     def complete_todo(todo_id: str) -> str:

@@ -115,3 +115,15 @@ def reopen(session: Session, actor: Actor, task_id: str) -> Task:
     session.flush()
     audit.record(session, who=str(actor), what="todo.reopen", target_type="task", target_id=t.id)
     return t
+
+
+def set_due(session: Session, actor: Actor, task_id: str, due: date | None) -> Task:
+    if actor.is_agent:
+        raise PermissionDenied("Agents can't change the founder's due dates.", actor=str(actor))
+    t = _get(session, task_id)
+    t.due_date = due
+    from aios.core import audit
+
+    audit.record(session, who=str(actor), what="todo.due", input={"due": due.isoformat() if due else None},
+                 target_type="task", target_id=t.id)
+    return t
