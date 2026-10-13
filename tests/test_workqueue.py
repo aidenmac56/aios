@@ -84,3 +84,15 @@ async def test_reopen_feedback_reaches_the_next_attempt(sm, engine):
         req = s.get(WorkflowRun, second[0]["run_id"]).request
         assert "shorter, under 60 seconds" in req and "Previous version" in req
         assert first[0]["run_id"] != second[0]["run_id"]
+
+
+def test_referenced_run_output_is_attached(sm):
+    with sm() as s:
+        r = WorkflowRun(command="trends", request="x", result={"trends": {"summary": "AI receptionists are mainstream",
+                        "trends": [{"name": "AI receptionists", "signal": "price drop to $25/mo", "relevance": "HIGH"}]}})
+        s.add(r)
+        s.flush()
+        t = workqueue.add(s, f"Draft this week's script from trends run {r.id[:8]}", agent="cmo")
+        s.commit()
+        req = workqueue.request_for(t, None)
+        assert "price drop to $25/mo" in req and "untrusted_data" in req

@@ -14,6 +14,7 @@ he reopens it (`aios work reopen <id>`) and it goes back in the queue.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -60,6 +61,9 @@ def request_for(task: Task, project: Project | None) -> str:
         parts.append(f"Done when: {task.completion_criteria}")
     if project:
         parts.append(f"(Part of project: {project.name})")
+    refs = _referenced_runs(task)
+    if refs:
+        parts.append(refs)
     why = (task.result or {}).get("reopened_because")
     if why:  # the founder sent the last attempt back: revise it, don't start over blind
         parts.append(f"The founder rejected the previous version. His feedback: {why}")
@@ -67,6 +71,36 @@ def request_for(task: Task, project: Project | None) -> str:
         if prev:
             parts.append(f"Previous version, to revise:\n{prev}")
     return "\n".join(parts)
+
+
+_RUN_REF = re.compile(r"\brun\s+([0-9a-f]{8,32})\b")
+
+
+def _referenced_runs(task: Task) -> str | None:
+    """Tasks like "use the trends report from run 1a2b3c4d" get that run's actual output attached,
+    so the agent works from it instead of guessing. Output is data (web-sourced), never instructions."""
+    from sqlalchemy.orm import object_session
+
+    from aios.db.models import WorkflowRun
+    from aios.llm.calls import untrusted
+
+    s = object_session(task)
+    if s is None:
+        return None
+    blocks = []
+    for ref in dict.fromkeys(_RUN_REF.findall(f"{task.title} {task.description or ''}")):
+        run = s.execute(select(WorkflowRun).where(WorkflowRun.id.like(f"{ref}%")).limit(2)).scalars().all()
+        if len(run) != 1 or not run[0].result:
+            continue
+        res = {k: v for k, v in run[0].result.items() if k in ("trends", "research", "draft", "multi", "brief")}
+        if "trends" in res:  # keep what a writer needs
+            t = res["trends"]
+            res["trends"] = {"summary": t.get("summary"), "trends": [
+                {k: x.get(k) for k in ("name", "signal", "relevance", "relevance_why", "business_opportunity",
+                                       "market_impact", "evidence")} for x in t.get("trends", [])]}
+        text = json.dumps(res, default=str)[:9000]
+        blocks.append(untrusted(f"aios_run_{run[0].command}_{run[0].id[:8]}", text))
+    return ("Material from the referenced run(s):\n" + "\n".join(blocks)) if blocks else None
 
 
 def _previous_output(task: Task) -> str | None:
